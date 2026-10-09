@@ -523,3 +523,53 @@ document.getElementById('back-btn').addEventListener('click', () => {
     }
   }
 })();
+
+// === ФАЗА 2: ЭМОДЗИ ПАНЕЛЬ ===
+const EMOJIS = ['😀','😂','😊','😍','😭','😎','😡','👍','🔥','❤️','🎉','🤔','🙄','😴','🥺','✨','💯','🙌','🥰','🥶','💀','🤡','👽','👻','👀','💅','🍻','🚀','💸','🎧'];
+
+function setupEmojiPicker() {
+  if (document.getElementById('emoji-btn')) return;
+  const form = document.getElementById('form');
+  const submitBtn = form.querySelector('button[type="submit"]');
+  
+  const emojiBtn = document.createElement('button');
+  emojiBtn.type = 'button';
+  emojiBtn.id = 'emoji-btn';
+  emojiBtn.innerHTML = '😀';
+  
+  // Вставляем кнопку смайлов перед кнопкой отправки
+  form.insertBefore(emojiBtn, submitBtn);
+  
+  const picker = document.createElement('div');
+  picker.id = 'emoji-picker';
+  picker.className = 'hidden';
+  
+  EMOJIS.forEach(emo => {
+    const span = document.createElement('span');
+    span.textContent = emo;
+    span.className = 'emoji-item';
+    span.onclick = () => {
+      const input = document.getElementById('input');
+      input.value += emo;
+      input.focus();
+    };
+    picker.appendChild(span);
+  });
+  
+  document.getElementById('chat').appendChild(picker);
+  
+  emojiBtn.onclick = (e) => {
+    e.stopPropagation();
+    picker.classList.toggle('hidden');
+  };
+  
+  // Закрываем панель при клике в любое другое место
+  document.addEventListener('click', (e) => {
+    if (!picker.contains(e.target) && e.target !== emojiBtn) {
+      picker.classList.add('hidden');
+    }
+  });
+}
+
+// Запускаем
+setupEmojiPicker();

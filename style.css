@@ -82,3 +82,11 @@ body { background: #0a0e14; color: #e4e6eb; height: 100vh; overflow: hidden; }
   #sidebar { width: 100%; }
   #back-btn { display: block; }
 }
+
+/* --- ЭМОДЗИ ПАНЕЛЬ --- */
+#emoji-btn { background: transparent; border: none; font-size: 22px; cursor: pointer; transition: 0.2s; padding: 0 8px; opacity: 0.7; }
+#emoji-btn:hover { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 5px rgba(82,136,193,0.5)); }
+#emoji-picker { position: absolute; bottom: 80px; right: 20px; background: rgba(23, 33, 43, 0.6); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.08); padding: 12px; border-radius: 16px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 100; transition: 0.2s ease; }
+#emoji-picker.hidden { display: none !important; }
+.emoji-item { font-size: 22px; cursor: pointer; transition: 0.2s; text-align: center; padding: 6px; border-radius: 8px; user-select: none; }
+.emoji-item:hover { background: rgba(255,255,255,0.1); transform: scale(1.2); }
