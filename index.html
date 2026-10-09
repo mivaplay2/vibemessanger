@@ -27,11 +27,16 @@
       <p class="switch-link" onclick="toggleAuth('login')">Уже есть аккаунт? Войти</p>
       <div id="register-error" class="error-msg"></div>
     </div>
-    <div class="auth-card hidden" id="verify-form">
+        <div class="auth-card hidden" id="verify-form">
       <h1>Vibemessanger</h1>
-      <p class="subtitle">Проверьте почту</p>
-      <p class="info-msg">Мы отправили ссылку для подтверждения. Перейдите по ней и вернитесь на сайт.</p>
-      <button onclick="toggleAuth('login')">Ок, я подтвердил</button>
+      <p class="subtitle">Проверка почты</p>
+      <p class="info-msg">Мы отправили 6-значный код на твой email.</p>
+      <div class="input-group">
+        <input id="verify-code" type="text" placeholder="000000" maxlength="6" style="text-align: center; font-size: 24px; letter-spacing: 12px; font-weight: bold;" required autocomplete="off">
+      </div>
+      <button id="btn-verify" class="btn-primary" style="margin-top: 15px;">Подтвердить</button>
+      <p class="switch-link" onclick="toggleAuth('login')">Отмена</p>
+      <div id="verify-error" class="error-msg"></div>
     </div>
   </div>
 
@@ -79,3 +84,4 @@
   <script src="client.js"></script>
 </body>
 </html>
+

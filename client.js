@@ -431,3 +431,27 @@ setupEmojiPicker();
     else { const uname = session.user.user_metadata?.username || session.user.email.split('@')[0]; await sb.from('profiles').insert({ id: myId, username: uname }); me = uname; startApp(); }
   }
 })();
+
+// === ПОДТВЕРЖДЕНИЕ ПО КОДУ (OTP) ===
+const btnVerify = document.getElementById('btn-verify');
+if (btnVerify) {
+  btnVerify.addEventListener('click', async () => {
+    // Берем email из поля регистрации (оно еще хранит значение)
+    const email = document.getElementById('reg-email').value.trim();
+    const token = document.getElementById('verify-code').value.trim();
+    
+    if (!token || token.length !== 6) return showError('verify-error', 'Введи 6 цифр из письма');
+    
+    btnVerify.textContent = 'Проверка...';
+    
+    // Отправляем код в Supabase
+    const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
+    
+    btnVerify.textContent = 'Подтвердить';
+    
+    if (error) {
+      return showError('verify-error', error.message);
+    }
+    // Если всё ок, onAuthStateChange сам поймает сессию и пустит в чат
+  });
+}
