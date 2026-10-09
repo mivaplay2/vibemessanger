@@ -1,23 +1,20 @@
 ﻿# Vibemessanger
 
-Простой веб-мессенджер в реальном времени.
+Веб-мессенджер в реальном времени на Supabase + GitHub Pages.
+
+🔗 **Демо:** https://mivaplay2.github.io/vibemessanger/
 
 ## Возможности
 
-- Регистрация по нику
-- Список онлайн-пользователей
-- Личные чаты в реальном времени (Socket.IO)
+- Регистрация с подтверждением почты
+- Вход по email и паролю
+- Список пользователей
+- Личные чаты в реальном времени
 - История сообщений
+- Тёмная тема с аватарками
 
 ## Стек
 
-- Node.js + Express
-- Socket.IO
-- Vanilla JS (frontend)
-
-## Запуск
-
-    npm install
-    node server.js
-
-Открыть http://localhost:3000
+- Supabase (Auth + PostgreSQL + Realtime)
+- Vanilla JS + CSS
+- GitHub Pages (хостинг)

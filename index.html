@@ -23,7 +23,7 @@
       <p class="subtitle">Регистрация</p>
       <input id="reg-email" type="email" placeholder="Email" required>
       <input id="reg-username" type="text" placeholder="Ник" maxlength="20" required>
-      <input id="reg-password" type="password" placeholder="Пароль" required>
+      <input id="reg-password" type="password" placeholder="Пароль (мин 6)" required>
       <button id="btn-register">Зарегистрироваться</button>
       <p class="switch-link" onclick="toggleAuth('login')">Уже есть аккаунт? Войти</p>
       <div id="register-error" class="error-msg"></div>
@@ -31,11 +31,9 @@
 
     <div class="auth-card hidden" id="verify-form">
       <h1>Vibemessanger</h1>
-      <p class="subtitle">Подтверждение почты</p>
-      <p class="info-msg">Мы отправили код на вашу почту</p>
-      <input id="verify-code" type="text" placeholder="6-значный код" maxlength="6" required>
-      <button id="btn-verify">Подтвердить</button>
-      <div id="verify-error" class="error-msg"></div>
+      <p class="subtitle">Проверьте почту</p>
+      <p class="info-msg">Мы отправили ссылку для подтверждения. Перейдите по ней и вернитесь на сайт.</p>
+      <button onclick="toggleAuth('login')">Ок, я подтвердил</button>
     </div>
   </div>
 
@@ -52,7 +50,7 @@
       <div class="search-box">
         <input id="search" placeholder="Поиск людей...">
       </div>
-      <h3 class="section-title">В сети</h3>
+      <h3 class="section-title">Все пользователи</h3>
       <ul id="users"></ul>
     </aside>
     <main id="chat">
@@ -63,7 +61,6 @@
         </div>
       </div>
       <div id="messages"></div>
-      <div id="typing-indicator"></div>
       <form id="form">
         <input id="input" placeholder="Напиши сообщение..." autocomplete="off">
         <button type="submit" title="Отправить">></button>
@@ -71,7 +68,7 @@
     </main>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="client.js"></script>
 </body>
 </html>
