@@ -2,28 +2,47 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Мессенджер</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibemessanger</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <form id="login">
-    <h1>Мессенджер</h1>
-    <input id="username" placeholder="Твой ник" maxlength="20" required>
-    <button type="submit">Войти</button>
+    <div class="login-card">
+      <h1>Vibemessanger</h1>
+      <p class="subtitle">Общайся. Вайби. Живи.</p>
+      <input id="username" placeholder="Введи свой ник" maxlength="20" required>
+      <button type="submit">Войти</button>
+    </div>
   </form>
 
   <div id="app" style="display:none">
     <aside id="sidebar">
-      <div id="me"></div>
-      <h3>Онлайн</h3>
+      <div class="sidebar-header">
+        <div class="avatar" id="my-avatar"></div>
+        <div class="sidebar-info">
+          <div id="me"></div>
+          <div class="status">онлайн</div>
+        </div>
+      </div>
+      <div class="search-box">
+        <input id="search" placeholder="Поиск людей...">
+      </div>
+      <h3 class="section-title">В сети</h3>
       <ul id="users"></ul>
     </aside>
     <main id="chat">
-      <div id="chat-header">Выбери собеседника</div>
+      <div id="chat-header">
+        <div class="chat-header-info">
+          <div id="chat-header-name">Выбери собеседника</div>
+          <div id="chat-header-status"></div>
+        </div>
+      </div>
       <div id="messages"></div>
+      <div id="typing-indicator"></div>
       <form id="form">
-        <input id="input" placeholder="Сообщение..." autocomplete="off">
-        <button type="submit">Отправить</button>
+        <input id="input" placeholder="Напиши сообщение..." autocomplete="off">
+        <button type="submit" title="Отправить">➤</button>
       </form>
     </main>
   </div>
