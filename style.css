@@ -127,3 +127,19 @@ body { background: #0a0e14; color: #e4e6eb; height: 100vh; overflow: hidden; }
 #image-preview { background: rgba(82,136,193,0.15); border-top: 1px solid rgba(255,255,255,0.05); padding: 10px 20px; align-items: center; justify-content: space-between; font-size: 13px; color: #e4e6eb; border-top-left-radius: 12px; border-top-right-radius: 12px; }
 #image-preview button { background: transparent; border: none; color: #aab8c2; cursor: pointer; font-size: 16px; transition: 0.2s; }
 #image-preview button:hover { color: #ef5350; transform: scale(1.2); }
+
+/* --- ФАЗА 4: МАКСИМАЛЬНЫЙ АПГРЕЙД --- */
+#chat-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 14, 20, 0.3); color: #7f91a4; text-align: center; z-index: 5; }
+.logo-glow { font-size: 72px; margin-bottom: 20px; filter: drop-shadow(0 0 25px rgba(82,136,193,0.6)); animation: float 3s ease-in-out infinite; user-select: none; }
+@keyframes float { 0% { transform: translateY(0); } 50% { transform: translateY(-12px); } 100% { transform: translateY(0); } }
+#close-chat-btn-desktop { background: transparent; border: none; color: #aab8c2; font-size: 20px; cursor: pointer; transition: 0.2s; padding: 4px 10px; border-radius: 8px; margin-left: auto; display: flex; align-items: center; justify-content: center; }
+#close-chat-btn-desktop:hover { background: rgba(235, 87, 87, 0.15); color: #ef5350; transform: scale(1.1); }
+#me { cursor: pointer; position: relative; display: inline-block; padding-right: 18px; transition: 0.2s; }
+#me:hover { color: #5288c1; }
+#me::after { content: '✎'; position: absolute; right: 0; top: 0; color: #5288c1; font-size: 12px; opacity: 0; transition: 0.2s; }
+#me:hover::after { opacity: 1; right: 2px; }
+#my-avatar { border: 2px solid transparent; transition: 0.3s ease; }
+#my-avatar:hover { border-color: #5288c1; box-shadow: 0 0 15px rgba(82,136,193,0.4); transform: scale(1.05); }
+.msg { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+@keyframes popIn { from { opacity: 0; transform: scale(0.9) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@media (max-width: 768px) { #close-chat-btn-desktop { display: none !important; } }

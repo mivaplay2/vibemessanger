@@ -1,8 +1,7 @@
 ﻿const SUPABASE_URL = 'https://bknepaougcpebsnddmyo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_TS5On4xp5bizVk_kJzHNCQ_iW2Mc3Op';
 
-const { createClient } = supabase;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const { createClient } = supabase; const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let me = null, myId = null, myAvatarUrl = null;
 let currentChatUser = null, allUsers = [], friendships = [], chatsMeta = {};
@@ -39,6 +38,22 @@ function lastSeenText(ts) {
   if (min < 1440) return `Был(а) ${Math.floor(min/60)} ч назад`; return 'Был(а) ' + new Date(ts).toLocaleDateString('ru-RU');
 }
 
+// === ЗВУКИ И БЕЙДЖИ ===
+function playNotification() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(800, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
+  } catch(e) {}
+}
+function updateTitleBadge() {
+  let total = 0; for (const id in chatsMeta) total += chatsMeta[id].unread || 0;
+  document.title = total > 0 ? `(${total}) Vibemessanger` : 'Vibemessanger';
+}
+
 function toggleAuth(mode) {
   document.getElementById('login-form').classList.toggle('hidden', mode !== 'login');
   document.getElementById('register-form').classList.toggle('hidden', mode !== 'register');
@@ -68,9 +83,7 @@ if (btnVerify) {
   btnVerify.addEventListener('click', async () => {
     const email = document.getElementById('reg-email').value.trim(), token = document.getElementById('verify-code').value.trim();
     if (!token || token.length !== 6) return showError('verify-error', 'Введи 6 цифр из письма');
-    btnVerify.textContent = 'Проверка...';
-    const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
-    btnVerify.textContent = 'Подтвердить';
+    btnVerify.textContent = 'Проверка...'; const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' }); btnVerify.textContent = 'Подтвердить';
     if (error) return showError('verify-error', error.message);
   });
 }
@@ -90,19 +103,19 @@ sb.auth.onAuthStateChange(async (event, session) => {
   }
 });
 
+// === НАСТРОЙКИ ПРОФИЛЯ ===
 function setupAvatarUpload(avatarEl) {
   avatarEl.style.cursor = 'pointer'; avatarEl.title = 'Сменить аватарку';
   const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/jpeg, image/png, image/webp'; input.style.display = 'none'; document.body.appendChild(input);
   avatarEl.onclick = () => input.click();
   input.onchange = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
+    const file = e.target.files[0]; if (!file) return; const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
       img.onload = async () => {
-        const canvas = document.createElement('canvas'); const MAX_SIZE = 150; let width = img.width, height = img.height;
-        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-        canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, width, height);
+        const canvas = document.createElement('canvas'); const MAX = 150; let w = img.width, h = img.height;
+        if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } } else { if (h > MAX) { w *= MAX / h; h = MAX; } }
+        canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
         const base64 = canvas.toDataURL('image/jpeg', 0.8);
         const { error } = await sb.from('profiles').update({ avatar_url: base64 }).eq('id', myId);
         if (error) { alert('Ошибка: ' + error.message); return; }
@@ -111,15 +124,34 @@ function setupAvatarUpload(avatarEl) {
     }; reader.readAsDataURL(file);
   };
 }
+function setupProfileSettings() {
+  const meEl = document.getElementById('me'); meEl.title = "Сменить никнейм";
+  meEl.onclick = async () => {
+    const newName = prompt('Введите новый никнейм:', me);
+    if(newName && newName.trim() !== '' && newName !== me) {
+      const { error } = await sb.from('profiles').update({ username: newName.trim() }).eq('id', myId);
+      if(!error) { me = newName.trim(); meEl.textContent = me; render(); } else alert('Ошибка: Такое имя уже занято или недопустимо');
+    }
+  };
+}
 
 async function startApp() {
   document.getElementById('auth-screen').style.display = 'none'; document.getElementById('app').style.display = 'flex';
-  document.getElementById('me').textContent = me;
+  document.getElementById('me').textContent = me; setupProfileSettings();
   const myAv = document.getElementById('my-avatar'); const newAv = makeAvatar(me, null, myAvatarUrl); newAv.id = 'my-avatar'; myAv.replaceWith(newAv); setupAvatarUpload(newAv);
   
   const form = document.getElementById('form');
   if(!document.getElementById('reply-banner')) { const banner = document.createElement('div'); banner.id = 'reply-banner'; form.parentNode.insertBefore(banner, form); }
-  setupAttachment(); setupEmojiPicker();
+  
+  // Создаем заглушку чата
+  if(!document.getElementById('chat-placeholder')) {
+    const p = document.createElement('div'); p.id = 'chat-placeholder';
+    p.innerHTML = '<div class="logo-glow">✨</div><h2 style="color: #fff; margin-bottom: 8px;">Vibemessanger</h2><p>Выберите чат для начала общения</p>';
+    document.getElementById('app').appendChild(p);
+  }
+  document.getElementById('chat').classList.add('hidden'); // прячем сам чат со старта
+
+  setupAttachment(); setupEmojiPicker(); setupCloseBtn();
   await loadAll(); subscribeAll(); render();
 }
 
@@ -136,6 +168,7 @@ async function loadAll() {
     if (!chatsMeta[other]) chatsMeta[other] = { lastMessage: msg, unread: 0 };
     if (msg.receiver_id === myId && !msg.read_at) chatsMeta[other].unread++;
   }
+  updateTitleBadge();
 }
 
 function subscribeAll() {
@@ -201,7 +234,6 @@ function renderRequests(ul, search) {
   if (incoming.length) { createTitle('Входящие'); incoming.forEach(f => { const user = allUsers.find(u => u.id === f.requester_id); if (user && (!search || user.username.toLowerCase().includes(search))) ul.appendChild(buildRequestItem(user, 'incoming', f.id)); }); }
   if (outgoing.length) { createTitle('Исходящие'); outgoing.forEach(f => { const user = allUsers.find(u => u.id === f.addressee_id); if (user && (!search || user.username.toLowerCase().includes(search))) ul.appendChild(buildRequestItem(user, 'outgoing', f.id)); }); }
 }
-
 function buildRequestItem(user, type, fid) {
   const li = document.createElement('li'); li.className = 'chat-item'; li.appendChild(makeAvatar(user.username, null, user.avatar_url));
   const body = document.createElement('div'); body.className = 'chat-body';
@@ -216,7 +248,6 @@ function buildRequestItem(user, type, fid) {
   }
   body.appendChild(bottom); li.appendChild(body); return li;
 }
-
 function renderPeople(ul, search) {
   const items = allUsers.filter(u => u.id !== myId).filter(u => !search || u.username.toLowerCase().includes(search));
   if (!items.length) { ul.innerHTML = '<div class="empty-state">Никого не найдено</div>'; return; }
@@ -232,14 +263,31 @@ function renderPeople(ul, search) {
   });
 }
 
-// === ЧАТ ===
+// === ЧАТ И ЛОГИКА ===
+function setupCloseBtn() {
+  if(document.getElementById('close-chat-btn-desktop')) return;
+  const btn = document.createElement('button'); btn.id = 'close-chat-btn-desktop'; btn.innerHTML = '✖'; btn.title = 'Закрыть чат';
+  btn.onclick = closeChat;
+  document.getElementById('chat-header').appendChild(btn);
+}
+function closeChat() {
+  currentChatUser = null; cancelReply(); if(window.cancelImage) cancelImage();
+  document.getElementById('chat').classList.add('hidden');
+  document.getElementById('chat-placeholder').classList.remove('hidden');
+  document.getElementById('sidebar').classList.remove('hidden'); // всегда показываем сайдбар при закрытии
+  updateTitleBadge(); render();
+}
+
 async function openChat(user) {
   if (!areFriends(user.id)) { alert('Сначала добавьте пользователя в друзья'); return; }
   currentChatUser = user; cancelReply(); if(window.cancelImage) cancelImage();
   document.getElementById('chat-header-name').textContent = user.username;
   const headerAv = document.getElementById('chat-avatar'); headerAv.style.display = 'flex'; headerAv.replaceWith(makeAvatar(user.username, 40, user.avatar_url)); document.querySelector('.chat-header-info').previousElementSibling.id = 'chat-avatar';
   document.getElementById('messages').innerHTML = ''; lastDate = null; msgCache = {};
-  document.getElementById('sidebar').classList.add('hidden'); document.getElementById('chat').classList.remove('hidden');
+  
+  document.getElementById('chat-placeholder').classList.add('hidden');
+  document.getElementById('chat').classList.remove('hidden');
+  if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden'); // Прячем сайдбар ТОЛЬКО на мобилках
 
   if (messageChannel) await sb.removeChannel(messageChannel);
   await loadHistory(user); await markAsRead(user); subscribeMessages(user); updateHeaderStatus(); render();
@@ -258,7 +306,7 @@ async function loadHistory(user) {
 }
 async function markAsRead(user) {
   await sb.from('messages').update({ read_at: new Date().toISOString() }).eq('sender_id', user.id).eq('receiver_id', myId).is('read_at', null);
-  if (chatsMeta[user.id]) chatsMeta[user.id].unread = 0;
+  if (chatsMeta[user.id]) chatsMeta[user.id].unread = 0; updateTitleBadge();
 }
 
 function subscribeMessages(user) {
@@ -267,9 +315,13 @@ function subscribeMessages(user) {
       const msg = payload.new; const relevant = (msg.sender_id === myId && msg.receiver_id === user.id) || (msg.sender_id === user.id && msg.receiver_id === myId);
       if (!relevant) return; const other = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
       chatsMeta[other] = chatsMeta[other] || { lastMessage: null, unread: 0 }; chatsMeta[other].lastMessage = msg;
+      
+      if (msg.sender_id !== myId) playNotification(); // Звук при получении сообщения
+      
       if (msg.receiver_id === myId && !msg.read_at && (!currentChatUser || currentChatUser.id !== user.id)) chatsMeta[other].unread++;
       if (currentChatUser && currentChatUser.id === user.id) { msgCache[msg.id] = msg; renderMessage(msg); document.getElementById('messages').scrollTop = 999999; }
-      render(); if (msg.receiver_id === myId && currentChatUser?.id === msg.sender_id) markAsRead(user);
+      updateTitleBadge(); render();
+      if (msg.receiver_id === myId && currentChatUser?.id === msg.sender_id) markAsRead(user);
     })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
       const msg = payload.new; if ((msg.sender_id === myId && msg.receiver_id === currentChatUser?.id) || (msg.sender_id === currentChatUser?.id && msg.receiver_id === myId)) { msgCache[msg.id] = msg; renderMessage(msg); }
@@ -354,15 +406,10 @@ async function compressImage(file) {
 
 function setupAttachment() {
   if (document.getElementById('attach-btn')) return;
-  const form = document.getElementById('form');
-  const attachBtn = document.createElement('button'); attachBtn.type = 'button'; attachBtn.id = 'attach-btn'; attachBtn.innerHTML = '📎';
-  form.insertBefore(attachBtn, document.getElementById('input'));
-  
+  const form = document.getElementById('form'); const attachBtn = document.createElement('button'); attachBtn.type = 'button'; attachBtn.id = 'attach-btn'; attachBtn.innerHTML = '📎'; form.insertBefore(attachBtn, document.getElementById('input'));
   const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = 'image/jpeg, image/png, image/webp, image/gif'; fileInput.style.display = 'none'; document.body.appendChild(fileInput);
   attachBtn.onclick = () => fileInput.click();
-  
   const previewBox = document.createElement('div'); previewBox.id = 'image-preview'; previewBox.style.display = 'none'; form.parentNode.insertBefore(previewBox, form);
-  
   fileInput.onchange = e => {
     const file = e.target.files[0]; if (!file) return; pendingImage = file;
     previewBox.style.display = 'flex'; previewBox.innerHTML = `<div class="reply-content">📎 Прикреплено: ${file.name}</div><button type="button" onclick="cancelImage()">✕</button>`;
@@ -380,16 +427,13 @@ function setupEmojiPicker() {
   emojiBtn.onclick = (e) => { e.stopPropagation(); picker.classList.toggle('hidden'); }; document.addEventListener('click', (e) => { if (!picker.contains(e.target) && e.target !== emojiBtn) picker.classList.add('hidden'); });
 }
 
-// Перезаписываем обработчик формы
-const form = document.getElementById('form');
-const newForm = form.cloneNode(true); form.parentNode.replaceChild(newForm, form);
+const form = document.getElementById('form'); const newForm = form.cloneNode(true); form.parentNode.replaceChild(newForm, form);
 newForm.addEventListener('submit', async (e) => {
   e.preventDefault(); const input = document.getElementById('input'); const text = input.value.trim();
   if (!text && !pendingImage) return; if (!currentChatUser) return;
   
   const submitBtn = newForm.querySelector('button[type="submit"]'); const oldHtml = submitBtn.innerHTML; submitBtn.innerHTML = '⏳'; submitBtn.disabled = true;
   let uploadedUrl = null;
-  
   if (pendingImage) {
     const blob = await compressImage(pendingImage); const ext = pendingImage.name.split('.').pop() || 'jpg'; const fileName = `${myId}-${Date.now()}.${ext}`;
     const { data, error } = await sb.storage.from('chat-images').upload(fileName, blob, { contentType: pendingImage.type });
@@ -402,9 +446,7 @@ newForm.addEventListener('submit', async (e) => {
   
   const { error } = await sb.from('messages').insert(payload);
   if (error) alert('Ошибка: ' + error.message);
-  
-  input.value = ''; cancelReply(); if(window.cancelImage) cancelImage(); stopTyping(); amTyping = false;
-  submitBtn.innerHTML = oldHtml; submitBtn.disabled = false;
+  input.value = ''; cancelReply(); if(window.cancelImage) cancelImage(); stopTyping(); amTyping = false; submitBtn.innerHTML = oldHtml; submitBtn.disabled = false;
 });
 
 const inputEl = document.getElementById('input');
@@ -413,7 +455,8 @@ inputEl.addEventListener('input', () => {
   clearTimeout(typingTimeout); typingTimeout = setTimeout(() => { amTyping = false; stopTyping(); }, 2000);
 });
 
-document.getElementById('back-btn').addEventListener('click', () => { document.getElementById('sidebar').classList.remove('hidden'); document.getElementById('chat').classList.add('hidden'); currentChatUser = null; cancelReply(); if(window.cancelImage) cancelImage(); render(); });
+// Кнопка "назад" (для телефонов)
+document.getElementById('back-btn').addEventListener('click', closeChat);
 
 (async () => {
   const { data: { session } } = await sb.auth.getSession();
