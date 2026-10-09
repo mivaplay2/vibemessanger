@@ -209,3 +209,84 @@ body {
   #chat.hidden { display: none; }
   .msg { max-width: 80%; }
 }
+
+/* === TABS === */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+}
+.tab {
+  flex: 1;
+  padding: 10px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 13.5px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  position: relative;
+  transition: color .15s;
+  font-family: inherit;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent-2); border-bottom-color: var(--accent-2); }
+.req-badge {
+  display: none;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+.req-badge.visible { display: inline-block; }
+
+/* === ACTION BUTTONS in list === */
+.action-btn {
+  padding: 6px 12px;
+  border-radius: 14px;
+  border: none;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: filter .15s;
+  font-family: inherit;
+}
+.action-btn.add { background: var(--accent); color: #fff; }
+.action-btn.add:hover { filter: brightness(1.15); }
+.action-btn.accept { background: var(--online); color: #fff; }
+.action-btn.reject { background: transparent; border: 1px solid var(--text-2); color: var(--text-2); }
+.action-btn.cancel { background: transparent; border: 1px solid var(--text-2); color: var(--text-2); }
+.action-btn.pending { background: transparent; border: 1px solid var(--text-2); color: var(--text-2); cursor: default; }
+.action-btn:hover.reject, .action-btn:hover.cancel { color: #e74c3c; border-color: #e74c3c; }
+
+.item-status {
+  font-size: 12px;
+  color: var(--text-2);
+  font-style: italic;
+}
+
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+#back-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: 4px;
+}
+#back-btn:hover { color: var(--text); }
+
+@media (max-width: 700px) {
+  #back-btn { display: block; }
+}
