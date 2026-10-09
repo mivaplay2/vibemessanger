@@ -8,14 +8,20 @@ let me = null;
 let myId = null;
 let currentChatUser = null;
 let allUsers = [];
+let chatsMeta = {};
+let onlineUsers = new Set();
+let typingUsers = new Set();
 let messageChannel = null;
 let profilesChannel = null;
+let presenceChannel = null;
 let lastDate = null;
+let typingTimeout = null;
+let amTyping = false;
 
 function colorFromString(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  return 'hsl(' + (Math.abs(hash) % 360) + ', 70%, 55%)';
+  return 'hsl(' + (Math.abs(hash) % 360 + 360) % 360 + ', 60%, 50%)';
 }
 
 function makeAvatar(name, size) {
@@ -23,7 +29,7 @@ function makeAvatar(name, size) {
   div.className = 'avatar';
   div.style.background = colorFromString(name);
   div.textContent = name.charAt(0).toUpperCase();
-  if (size) { div.style.width = size + 'px'; div.style.height = size + 'px'; div.style.fontSize = (size * 0.4) + 'px'; }
+  if (size) { div.style.width = size + 'px'; div.style.height = size + 'px'; div.style.fontSize = (size * 0.42) + 'px'; }
   return div;
 }
 
@@ -36,6 +42,33 @@ function formatDate(ts) {
   if (sameDay(d, today)) return 'Сегодня';
   if (sameDay(d, yesterday)) return 'Вчера';
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
+function formatTime(ts) {
+  return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatListTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const today = new Date();
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(d, today)) return formatTime(ts);
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (sameDay(d, yesterday)) return 'Вчера';
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+}
+
+function lastSeenText(ts) {
+  if (!ts) return 'был(а) недавно';
+  const diff = Date.now() - new Date(ts).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'был(а) только что';
+  if (min < 60) return 'был(а) ' + min + ' мин назад';
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return 'был(а) ' + hours + ' ч назад';
+  return 'был(а) ' + new Date(ts).toLocaleDateString('ru-RU');
 }
 
 function toggleAuth(mode) {
@@ -61,24 +94,17 @@ document.getElementById('btn-register').addEventListener('click', async () => {
   if (existing) return showError('register-error', 'Этот ник уже занят');
 
   const { data, error } = await sb.auth.signUp({
-    email,
-    password,
+    email, password,
     options: { data: { username } }
   });
-
   if (error) return showError('register-error', error.message);
-  if (data.session) {
-    // вошёл сразу (confirm email выключен)
-  } else {
-    toggleAuth('verify');
-  }
+  if (!data.session) toggleAuth('verify');
 });
 
 document.getElementById('btn-login').addEventListener('click', async () => {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   if (!email || !password) return showError('login-error', 'Заполните все поля');
-
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) {
     if (error.message.includes('Email not confirmed')) return showError('login-error', 'Сначала подтвердите почту');
@@ -87,20 +113,20 @@ document.getElementById('btn-login').addEventListener('click', async () => {
 });
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  if (myId) await sb.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', myId);
   if (messageChannel) await sb.removeChannel(messageChannel);
   if (profilesChannel) await sb.removeChannel(profilesChannel);
+  if (presenceChannel) await sb.removeChannel(presenceChannel);
   await sb.auth.signOut();
   location.reload();
 });
 
 sb.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session && !myId) {
-    const user = session.user;
-    myId = user.id;
-
+    myId = session.user.id;
     const { data: profile } = await sb.from('profiles').select('username').eq('id', myId).maybeSingle();
     if (!profile) {
-      const uname = user.user_metadata?.username || user.email.split('@')[0];
+      const uname = session.user.user_metadata?.username || session.user.email.split('@')[0];
       await sb.from('profiles').insert({ id: myId, username: uname });
       me = uname;
     } else {
@@ -120,51 +146,200 @@ async function startApp() {
   myAv.replaceWith(newAv);
 
   await loadAllUsers();
+  await loadChatsMeta();
   subscribeProfiles();
+  subscribePresence();
+  renderChats();
 }
 
 async function loadAllUsers() {
-  const { data } = await sb.from('profiles').select('id, username');
-  if (data) { allUsers = data; renderUsers(); }
+  const { data } = await sb.from('profiles').select('id, username, last_seen');
+  if (data) allUsers = data;
+}
+
+async function loadChatsMeta() {
+  const { data, error } = await sb
+    .from('messages')
+    .select('*')
+    .or('sender_id.eq.' + myId + ',receiver_id.eq.' + myId + '')
+    .order('created_at', { ascending: false });
+  if (error || !data) return;
+
+  chatsMeta = {};
+  for (const msg of data) {
+    const other = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
+    if (!chatsMeta[other]) {
+      chatsMeta[other] = { lastMessage: msg, unread: 0 };
+    }
+    if (msg.receiver_id === myId && !msg.read_at) {
+      chatsMeta[other].unread++;
+    }
+  }
 }
 
 function subscribeProfiles() {
   profilesChannel = sb.channel('profiles-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadAllUsers())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+      loadAllUsers().then(renderChats);
+    })
     .subscribe();
 }
 
-document.getElementById('search').addEventListener('input', renderUsers);
+function subscribePresence() {
+  presenceChannel = sb.channel('online', {
+    config: { presence: { key: myId } }
+  });
 
-function renderUsers() {
-  const ul = document.getElementById('users');
+  presenceChannel
+    .on('presence', { event: 'sync' }, () => {
+      const state = presenceChannel.presenceState();
+      onlineUsers = new Set();
+      typingUsers = new Set();
+      for (const id in state) {
+        const metas = state[id];
+        for (const m of metas) {
+          if (m.online) onlineUsers.add(id);
+          if (m.typingTo) typingUsers.add(id);
+        }
+      }
+      renderChats();
+      updateHeaderStatus();
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track({ online: true, typingTo: null });
+      }
+    });
+}
+
+function setTyping(toId) {
+  if (!presenceChannel) return;
+  presenceChannel.track({ online: true, typingTo: toId });
+}
+function stopTyping() {
+  if (!presenceChannel) return;
+  presenceChannel.track({ online: true, typingTo: null });
+}
+
+document.getElementById('search').addEventListener('input', renderChats);
+
+function renderChats() {
+  const ul = document.getElementById('chats');
   ul.innerHTML = '';
   const search = document.getElementById('search').value.trim().toLowerCase();
-  allUsers.forEach(u => {
-    if (u.id === myId) return;
-    if (search && !u.username.toLowerCase().includes(search)) return;
+
+  const items = allUsers
+    .filter(u => u.id !== myId)
+    .map(u => {
+      const meta = chatsMeta[u.id] || { lastMessage: null, unread: 0 };
+      return { user: u, meta };
+    })
+    .filter(({ user }) => !search || user.username.toLowerCase().includes(search))
+    .sort((a, b) => {
+      const tA = a.meta.lastMessage ? new Date(a.meta.lastMessage.created_at).getTime() : 0;
+      const tB = b.meta.lastMessage ? new Date(b.meta.lastMessage.created_at).getTime() : 0;
+      return tB - tA;
+    });
+
+  items.forEach(({ user, meta }) => {
     const li = document.createElement('li');
-    li.appendChild(makeAvatar(u.username));
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'user-name';
-    nameSpan.textContent = u.username;
-    li.appendChild(nameSpan);
-    li.onclick = () => openChat(u);
-    if (currentChatUser && u.id === currentChatUser.id) li.classList.add('active');
+    li.className = 'chat-item';
+    if (currentChatUser && user.id === currentChatUser.id) li.classList.add('active');
+    li.onclick = () => openChat(user);
+
+    const av = makeAvatar(user.username);
+    if (onlineUsers.has(user.id)) {
+      av.style.boxShadow = '0 0 0 2px var(--online)';
+    }
+    li.appendChild(av);
+
+    const body = document.createElement('div');
+    body.className = 'chat-body';
+
+    const top = document.createElement('div');
+    top.className = 'chat-top';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'chat-name';
+    nameEl.textContent = user.username;
+    const timeEl = document.createElement('div');
+    timeEl.className = 'chat-time';
+    if (meta.lastMessage) timeEl.textContent = formatListTime(meta.lastMessage.created_at);
+    top.appendChild(nameEl);
+    top.appendChild(timeEl);
+
+    const bottom = document.createElement('div');
+    bottom.className = 'chat-bottom';
+    const preview = document.createElement('div');
+    preview.className = 'chat-preview';
+
+    if (typingUsers.has(user.id) && typingToMe(user.id)) {
+      preview.textContent = 'печатает...';
+      preview.classList.add('typing');
+    } else if (meta.lastMessage) {
+      const m = meta.lastMessage;
+      const isMine = m.sender_id === myId;
+      preview.textContent = (isMine ? 'Вы: ' : '') + m.content;
+      if (isMine) preview.classList.add('mine-prefix');
+    } else {
+      preview.textContent = 'Нет сообщений';
+    }
+    bottom.appendChild(preview);
+
+    if (meta.unread > 0 && !(currentChatUser && currentChatUser.id === user.id)) {
+      const badge = document.createElement('div');
+      badge.className = 'unread-badge';
+      badge.textContent = meta.unread > 99 ? '99+' : meta.unread;
+      bottom.appendChild(badge);
+    }
+
+    body.appendChild(top);
+    body.appendChild(bottom);
+    li.appendChild(body);
     ul.appendChild(li);
   });
+}
+
+function typingToMe(userId) {
+  return typingUsers.has(userId) && currentChatUser && currentChatUser.id === userId;
 }
 
 async function openChat(user) {
   currentChatUser = user;
   document.getElementById('chat-header-name').textContent = user.username;
+  const headerAv = document.getElementById('chat-avatar');
+  headerAv.style.display = 'flex';
+  const newAv = makeAvatar(user.username, 40);
+  newAv.id = 'chat-avatar';
+  headerAv.replaceWith(newAv);
+
   document.getElementById('messages').innerHTML = '';
   lastDate = null;
-  renderUsers();
+
+  document.getElementById('sidebar').classList.add('hidden');
+  document.getElementById('chat').classList.remove('hidden');
 
   if (messageChannel) await sb.removeChannel(messageChannel);
   await loadHistory(user);
+  await markAsRead(user);
   subscribeMessages(user);
+  updateHeaderStatus();
+  renderChats();
+}
+
+function updateHeaderStatus() {
+  if (!currentChatUser) return;
+  const status = document.getElementById('chat-header-status');
+  if (typingUsers.has(currentChatUser.id)) {
+    status.textContent = 'печатает...';
+    status.className = 'typing';
+  } else if (onlineUsers.has(currentChatUser.id)) {
+    status.textContent = 'в сети';
+    status.className = 'online';
+  } else {
+    const u = allUsers.find(x => x.id === currentChatUser.id);
+    status.textContent = lastSeenText(u?.last_seen);
+    status.className = '';
+  }
 }
 
 async function loadHistory(user) {
@@ -173,24 +348,54 @@ async function loadHistory(user) {
     .select('*')
     .or('and(sender_id.eq.' + myId + ',receiver_id.eq.' + user.id + '),and(sender_id.eq.' + user.id + ',receiver_id.eq.' + myId + ')')
     .order('created_at', { ascending: true });
-
   if (data) {
-    data.forEach(msg => renderMessage(msg));
+    data.forEach(renderMessage);
     const box = document.getElementById('messages');
     box.scrollTop = box.scrollHeight;
   }
 }
 
+async function markAsRead(user) {
+  await sb.from('messages')
+    .update({ read_at: new Date().toISOString() })
+    .eq('sender_id', user.id)
+    .eq('receiver_id', myId)
+    .is('read_at', null);
+  if (chatsMeta[user.id]) chatsMeta[user.id].unread = 0;
+}
+
 function subscribeMessages(user) {
-  messageChannel = sb.channel('messages-' + user.id)
+  messageChannel = sb.channel('messages-' + user.id + '-' + Date.now())
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
       const msg = payload.new;
       const relevant = (msg.sender_id === myId && msg.receiver_id === user.id) ||
                        (msg.sender_id === user.id && msg.receiver_id === myId);
       if (!relevant) return;
-      renderMessage(msg);
-      const box = document.getElementById('messages');
-      box.scrollTop = box.scrollHeight;
+
+      const other = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
+      chatsMeta[other] = chatsMeta[other] || { lastMessage: null, unread: 0 };
+      chatsMeta[other].lastMessage = msg;
+      if (msg.receiver_id === myId && !msg.read_at && (!currentChatUser || currentChatUser.id !== user.id)) {
+        chatsMeta[other].unread++;
+      }
+
+      if (currentChatUser && currentChatUser.id === user.id) {
+        renderMessage(msg);
+        const box = document.getElementById('messages');
+        box.scrollTop = box.scrollHeight;
+      }
+      renderChats();
+
+      if (msg.receiver_id === myId && currentChatUser && currentChatUser.id === msg.sender_id) {
+        markAsRead(user);
+      }
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
+      const msg = payload.new;
+      if (msg.read_at) {
+        const el = document.querySelector('[data-msg-id="' + msg.id + '"] .check');
+        if (el) { el.textContent = 'OK'; el.classList.add('read'); }
+      }
     })
     .subscribe();
 }
@@ -208,17 +413,30 @@ function renderMessage(msg) {
   const isMine = msg.sender_id === myId;
   const row = document.createElement('div');
   row.className = 'msg-row ' + (isMine ? 'mine' : 'theirs');
-  if (!isMine && currentChatUser) row.appendChild(makeAvatar(currentChatUser.username));
+  row.setAttribute('data-msg-id', msg.id);
 
   const bubble = document.createElement('div');
   bubble.className = 'msg ' + (isMine ? 'mine' : 'theirs');
+
   const text = document.createElement('div');
+  text.className = 'text';
   text.textContent = msg.content;
-  const time = document.createElement('div');
-  time.className = 'time';
-  time.textContent = new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const time = document.createElement('span');
+  time.textContent = formatTime(msg.created_at);
+  meta.appendChild(time);
+
+  if (isMine) {
+    const check = document.createElement('span');
+    check.className = 'check' + (msg.read_at ? ' read' : '');
+    check.textContent = msg.read_at ? 'OK' : 'v';
+    meta.appendChild(check);
+  }
+
   bubble.appendChild(text);
-  bubble.appendChild(time);
+  bubble.appendChild(meta);
   row.appendChild(bubble);
   box.appendChild(row);
 }
@@ -236,6 +454,25 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   });
   if (error) { alert('Ошибка: ' + error.message); return; }
   input.value = '';
+  stopTyping();
+  amTyping = false;
+});
+
+const inputEl = document.getElementById('input');
+inputEl.addEventListener('input', () => {
+  if (!currentChatUser) return;
+  if (!amTyping) { amTyping = true; setTyping(currentChatUser.id); }
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => { amTyping = false; stopTyping(); }, 2000);
+});
+
+document.getElementById('chat-header').addEventListener('click', (e) => {
+  if (window.innerWidth <= 700 && (e.target.id === 'chat-header-name' || e.target.id === 'chat-header')) {
+    document.getElementById('sidebar').classList.remove('hidden');
+    document.getElementById('chat').classList.add('hidden');
+    currentChatUser = null;
+    renderChats();
+  }
 });
 
 (async () => {

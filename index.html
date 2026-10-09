@@ -17,7 +17,6 @@
       <p class="switch-link" onclick="toggleAuth('register')">Нет аккаунта? Зарегистрироваться</p>
       <div id="login-error" class="error-msg"></div>
     </div>
-
     <div class="auth-card hidden" id="register-form">
       <h1>Vibemessanger</h1>
       <p class="subtitle">Регистрация</p>
@@ -28,7 +27,6 @@
       <p class="switch-link" onclick="toggleAuth('login')">Уже есть аккаунт? Войти</p>
       <div id="register-error" class="error-msg"></div>
     </div>
-
     <div class="auth-card hidden" id="verify-form">
       <h1>Vibemessanger</h1>
       <p class="subtitle">Проверьте почту</p>
@@ -36,25 +34,24 @@
       <button onclick="toggleAuth('login')">Ок, я подтвердил</button>
     </div>
   </div>
-
   <div id="app" style="display:none">
     <aside id="sidebar">
       <div class="sidebar-header">
         <div class="avatar" id="my-avatar"></div>
         <div class="sidebar-info">
           <div id="me"></div>
-          <div class="status">онлайн</div>
+          <div class="status">в сети</div>
         </div>
-        <button id="logout-btn" title="Выйти">X</button>
+        <button id="logout-btn" title="Выйти">×</button>
       </div>
       <div class="search-box">
-        <input id="search" placeholder="Поиск людей...">
+        <input id="search" placeholder="Поиск...">
       </div>
-      <h3 class="section-title">Все пользователи</h3>
-      <ul id="users"></ul>
+      <ul id="chats"></ul>
     </aside>
     <main id="chat">
       <div id="chat-header">
+        <div class="avatar" id="chat-avatar" style="display:none"></div>
         <div class="chat-header-info">
           <div id="chat-header-name">Выбери собеседника</div>
           <div id="chat-header-status"></div>
@@ -62,12 +59,13 @@
       </div>
       <div id="messages"></div>
       <form id="form">
-        <input id="input" placeholder="Напиши сообщение..." autocomplete="off">
-        <button type="submit" title="Отправить">></button>
+        <input id="input" placeholder="Написать сообщение..." autocomplete="off">
+        <button type="submit" title="Отправить">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
       </form>
     </main>
   </div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="client.js"></script>
 </body>
