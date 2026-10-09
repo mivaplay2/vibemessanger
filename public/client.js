@@ -1,4 +1,4 @@
-﻿const socket = io();
+﻿const socket = io({ autoConnect: false });
 let me = null;
 let currentChat = null;
 let allUsers = [];
@@ -39,25 +39,124 @@ function formatDate(ts) {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
-document.getElementById('login').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const username = document.getElementById('username').value.trim();
-  if (!username) return;
-  socket.emit('login', username);
+function toggleAuth(mode) {
+  document.getElementById('login-form').classList.toggle('hidden', mode !== 'login');
+  document.getElementById('register-form').classList.toggle('hidden', mode !== 'register');
+  document.getElementById('verify-form').classList.toggle('hidden', mode !== 'verify');
+}
+window.toggleAuth = toggleAuth;
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.textContent = msg;
+    setTimeout(() => el.textContent = '', 4000);
+  }
+}
+
+document.getElementById('btn-register').addEventListener('click', async () => {
+  const email = document.getElementById('reg-email').value.trim();
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
+  if (!email || !username || !password) return showError('register-error', 'Заполните все поля');
+
+  try {
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, username })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.setItem('pendingEmail', email);
+      toggleAuth('verify');
+    } else {
+      showError('register-error', data.error || 'Ошибка');
+    }
+  } catch (e) {
+    showError('register-error', 'Ошибка сети');
+  }
 });
 
-socket.on('login-ok', (username) => {
+document.getElementById('btn-verify').addEventListener('click', async () => {
+  const code = document.getElementById('verify-code').value.trim();
+  const email = localStorage.getItem('pendingEmail');
+  if (!code) return showError('verify-error', 'Введите код');
+
+  try {
+    const res = await fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.removeItem('pendingEmail');
+      toggleAuth('login');
+      showError('login-error', 'Почта подтверждена! Войдите.');
+    } else {
+      showError('verify-error', data.error || 'Ошибка');
+    }
+  } catch (e) {
+    showError('verify-error', 'Ошибка сети');
+  }
+});
+
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) return showError('login-error', 'Заполните все поля');
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('username', data.username);
+      startApp(data.token, data.username);
+    } else {
+      showError('login-error', data.error || 'Ошибка');
+    }
+  } catch (e) {
+    showError('login-error', 'Ошибка сети');
+  }
+});
+
+function startApp(token, username) {
   me = username;
-  document.getElementById('login').style.display = 'none';
+  socket.auth = { token };
+  socket.connect();
+
+  document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('me').textContent = me;
   const myAv = document.getElementById('my-avatar');
   const newAv = makeAvatar(me);
   newAv.id = 'my-avatar';
   myAv.replaceWith(newAv);
+}
+
+document.getElementById('logout-btn').addEventListener('click', () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('username');
+  location.reload();
 });
 
-socket.on('login-error', (msg) => alert(msg));
+const savedToken = localStorage.getItem('token');
+const savedUsername = localStorage.getItem('username');
+if (savedToken && savedUsername) {
+  startApp(savedToken, savedUsername);
+}
+
+socket.on('connect_error', () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('username');
+  location.reload();
+});
 
 socket.on('users', (users) => {
   allUsers = users;
@@ -131,9 +230,7 @@ function renderMessage(msg) {
   }
   const row = document.createElement('div');
   row.className = 'msg-row ' + (msg.from === me ? 'mine' : 'theirs');
-  if (msg.from !== me) {
-    row.appendChild(makeAvatar(msg.from));
-  }
+  if (msg.from !== me) row.appendChild(makeAvatar(msg.from));
   const bubble = document.createElement('div');
   bubble.className = 'msg ' + (msg.from === me ? 'mine' : 'theirs');
   const text = document.createElement('div');

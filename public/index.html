@@ -7,14 +7,37 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <form id="login">
-    <div class="login-card">
+  <div id="auth-screen">
+    <div class="auth-card" id="login-form">
       <h1>Vibemessanger</h1>
-      <p class="subtitle">Общайся. Вайби. Живи.</p>
-      <input id="username" placeholder="Введи свой ник" maxlength="20" required>
-      <button type="submit">Войти</button>
+      <p class="subtitle">Вход</p>
+      <input id="login-email" type="email" placeholder="Email" required>
+      <input id="login-password" type="password" placeholder="Пароль" required>
+      <button id="btn-login">Войти</button>
+      <p class="switch-link" onclick="toggleAuth('register')">Нет аккаунта? Зарегистрироваться</p>
+      <div id="login-error" class="error-msg"></div>
     </div>
-  </form>
+
+    <div class="auth-card hidden" id="register-form">
+      <h1>Vibemessanger</h1>
+      <p class="subtitle">Регистрация</p>
+      <input id="reg-email" type="email" placeholder="Email" required>
+      <input id="reg-username" type="text" placeholder="Ник" maxlength="20" required>
+      <input id="reg-password" type="password" placeholder="Пароль" required>
+      <button id="btn-register">Зарегистрироваться</button>
+      <p class="switch-link" onclick="toggleAuth('login')">Уже есть аккаунт? Войти</p>
+      <div id="register-error" class="error-msg"></div>
+    </div>
+
+    <div class="auth-card hidden" id="verify-form">
+      <h1>Vibemessanger</h1>
+      <p class="subtitle">Подтверждение почты</p>
+      <p class="info-msg">Мы отправили код на вашу почту</p>
+      <input id="verify-code" type="text" placeholder="6-значный код" maxlength="6" required>
+      <button id="btn-verify">Подтвердить</button>
+      <div id="verify-error" class="error-msg"></div>
+    </div>
+  </div>
 
   <div id="app" style="display:none">
     <aside id="sidebar">
@@ -24,6 +47,7 @@
           <div id="me"></div>
           <div class="status">онлайн</div>
         </div>
+        <button id="logout-btn" title="Выйти">X</button>
       </div>
       <div class="search-box">
         <input id="search" placeholder="Поиск людей...">
@@ -42,7 +66,7 @@
       <div id="typing-indicator"></div>
       <form id="form">
         <input id="input" placeholder="Напиши сообщение..." autocomplete="off">
-        <button type="submit" title="Отправить">➤</button>
+        <button type="submit" title="Отправить">></button>
       </form>
     </main>
   </div>
