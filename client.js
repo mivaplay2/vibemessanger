@@ -4,7 +4,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_TS5On4xp5bizVk_kJzHNCQ_iW2Mc3Op';
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let me = null, myId = null;
+let me = null, myId = null, myAvatarUrl = null;
 let currentChatUser = null;
 let allUsers = [];
 let friendships = [];
@@ -21,14 +21,23 @@ function colorFromString(str) {
   for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
   return 'hsl(' + (Math.abs(hash) % 360 + 360) % 360 + ', 60%, 50%)';
 }
-function makeAvatar(name, size) {
+
+function makeAvatar(name, size, avatarUrl) {
   const div = document.createElement('div');
   div.className = 'avatar';
-  div.style.background = colorFromString(name);
-  div.textContent = name.charAt(0).toUpperCase();
+  if (avatarUrl) {
+    div.style.backgroundImage = `url(${avatarUrl})`;
+    div.style.backgroundSize = 'cover';
+    div.style.backgroundPosition = 'center';
+    div.textContent = '';
+  } else {
+    div.style.background = colorFromString(name);
+    div.textContent = name.charAt(0).toUpperCase();
+  }
   if (size) { div.style.width = size + 'px'; div.style.height = size + 'px'; div.style.fontSize = (size * 0.42) + 'px'; }
   return div;
 }
+
 function formatDate(ts) {
   const d = new Date(ts), today = new Date(), yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
@@ -48,14 +57,14 @@ function formatListTime(ts) {
   return d.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit' });
 }
 function lastSeenText(ts) {
-  if (!ts) return 'был(а) недавно';
+  if (!ts) return 'Был(а) недавно';
   const diff = Date.now() - new Date(ts).getTime();
   const min = Math.floor(diff / 60000);
-  if (min < 1) return 'был(а) только что';
-  if (min < 60) return 'был(а) ' + min + ' мин назад';
+  if (min < 1) return 'Был(а) только что';
+  if (min < 60) return 'Был(а) ' + min + ' мин назад';
   const h = Math.floor(min/60);
-  if (h < 24) return 'был(а) ' + h + ' ч назад';
-  return 'был(а) ' + new Date(ts).toLocaleDateString('ru-RU');
+  if (h < 24) return 'Был(а) ' + h + ' ч назад';
+  return 'Был(а) ' + new Date(ts).toLocaleDateString('ru-RU');
 }
 
 function toggleAuth(mode) {
@@ -69,7 +78,6 @@ function showError(id, msg) {
   if (el) { el.textContent = msg; setTimeout(() => el.textContent = '', 5000); }
 }
 
-// === AUTH ===
 document.getElementById('btn-register').addEventListener('click', async () => {
   const email = document.getElementById('reg-email').value.trim();
   const username = document.getElementById('reg-username').value.trim();
@@ -77,7 +85,7 @@ document.getElementById('btn-register').addEventListener('click', async () => {
   if (!email || !username || !password) return showError('register-error', 'Заполните все поля');
   if (password.length < 6) return showError('register-error', 'Пароль минимум 6 символов');
   const { data: existing } = await sb.from('profiles').select('username').eq('username', username).maybeSingle();
-  if (existing) return showError('register-error', 'Этот ник уже занят');
+  if (existing) return showError('register-error', 'Такой ник уже занят');
   const { data, error } = await sb.auth.signUp({ email, password, options: { data: { username } } });
   if (error) return showError('register-error', error.message);
   if (!data.session) toggleAuth('verify');
@@ -102,23 +110,74 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 sb.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session && !myId) {
     myId = session.user.id;
-    const { data: profile } = await sb.from('profiles').select('username').eq('id', myId).maybeSingle();
+    const { data: profile } = await sb.from('profiles').select('username, avatar_url').eq('id', myId).maybeSingle();
     if (!profile) {
       const uname = session.user.user_metadata?.username || session.user.email.split('@')[0];
       await sb.from('profiles').insert({ id: myId, username: uname });
       me = uname;
-    } else me = profile.username;
+    } else {
+      me = profile.username;
+      myAvatarUrl = profile.avatar_url;
+    }
     startApp();
   }
 });
+
+// === ЗАГРУЗКА И СЖАТИЕ АВАТАРКИ ===
+function setupAvatarUpload(avatarEl) {
+  avatarEl.style.cursor = 'pointer';
+  avatarEl.title = 'Сменить аватарку';
+  
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg, image/png, image/webp';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  avatarEl.onclick = () => input.click();
+
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 150;
+        let width = img.width; let height = img.height;
+        if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
+        else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        const { error } = await sb.from('profiles').update({ avatar_url: base64 }).eq('id', myId);
+        if (error) { alert('Ошибка сохранения аватара: ' + error.message); return; }
+        
+        myAvatarUrl = base64;
+        avatarEl.style.backgroundImage = `url(${base64})`;
+        avatarEl.style.backgroundSize = 'cover';
+        avatarEl.textContent = '';
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+}
 
 async function startApp() {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('me').textContent = me;
   const myAv = document.getElementById('my-avatar');
-  const newAv = makeAvatar(me); newAv.id = 'my-avatar';
+  const newAv = makeAvatar(me, null, myAvatarUrl); 
+  newAv.id = 'my-avatar';
   myAv.replaceWith(newAv);
+  
+  setupAvatarUpload(newAv);
 
   await loadAll();
   subscribeAll();
@@ -127,7 +186,7 @@ async function startApp() {
 
 async function loadAll() {
   const [u, f, m] = await Promise.all([
-    sb.from('profiles').select('id, username, last_seen'),
+    sb.from('profiles').select('id, username, last_seen, avatar_url'),
     sb.from('friendships').select('*').or('requester_id.eq.' + myId + ',addressee_id.eq.' + myId + ''),
     sb.from('messages').select('*').or('sender_id.eq.' + myId + ',receiver_id.eq.' + myId + '').order('created_at', { ascending: false })
   ]);
@@ -142,14 +201,8 @@ async function loadAll() {
 }
 
 function subscribeAll() {
-  profilesChannel = sb.channel('profiles-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadAll().then(render))
-    .subscribe();
-
-  friendsChannel = sb.channel('friendships-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => loadAll().then(render))
-    .subscribe();
-
+  profilesChannel = sb.channel('profiles-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadAll().then(render)).subscribe();
+  friendsChannel = sb.channel('friendships-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => loadAll().then(render)).subscribe();
   presenceChannel = sb.channel('online', { config: { presence: { key: myId } } })
     .on('presence', { event: 'sync' }, () => {
       const state = presenceChannel.presenceState();
@@ -162,30 +215,15 @@ function subscribeAll() {
       }
       render(); updateHeaderStatus();
     })
-    .subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') await presenceChannel.track({ online: true, typingTo: null });
-    });
+    .subscribe(async (status) => { if (status === 'SUBSCRIBED') await presenceChannel.track({ online: true, typingTo: null }); });
 }
 function setTyping(toId) { if (presenceChannel) presenceChannel.track({ online: true, typingTo: toId }); }
 function stopTyping() { if (presenceChannel) presenceChannel.track({ online: true, typingTo: null }); }
 
-// === FRIENDS HELPERS ===
-function getFriendship(otherId) {
-  return friendships.find(f =>
-    (f.requester_id === myId && f.addressee_id === otherId) ||
-    (f.requester_id === otherId && f.addressee_id === myId)
-  );
-}
-function areFriends(otherId) {
-  const f = getFriendship(otherId);
-  return f && f.status === 'accepted';
-}
-function getIncoming() {
-  return friendships.filter(f => f.status === 'pending' && f.addressee_id === myId);
-}
-function getOutgoing() {
-  return friendships.filter(f => f.status === 'pending' && f.requester_id === myId);
-}
+function getFriendship(otherId) { return friendships.find(f => (f.requester_id === myId && f.addressee_id === otherId) || (f.requester_id === otherId && f.addressee_id === myId)); }
+function areFriends(otherId) { const f = getFriendship(otherId); return f && f.status === 'accepted'; }
+function getIncoming() { return friendships.filter(f => f.status === 'pending' && f.addressee_id === myId); }
+function getOutgoing() { return friendships.filter(f => f.status === 'pending' && f.requester_id === myId); }
 
 async function sendFriendRequest(toId) {
   const { error } = await sb.from('friendships').insert({ requester_id: myId, addressee_id: toId });
@@ -202,28 +240,21 @@ async function rejectFriend(fid) {
   await loadAll(); render();
 }
 
-// === TABS ===
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
     currentTab = t.dataset.tab;
     document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
-    document.getElementById('search').value = '';
-    render();
+    document.getElementById('search').value = ''; render();
   });
 });
 document.getElementById('search').addEventListener('input', render);
 
-// === RENDER ===
 function render() {
-  const ul = document.getElementById('list');
-  ul.innerHTML = '';
+  const ul = document.getElementById('list'); ul.innerHTML = '';
   const search = document.getElementById('search').value.trim().toLowerCase();
-
-  // update requests badge
   const incCount = getIncoming().length;
   const badge = document.getElementById('req-count');
-  if (incCount > 0) { badge.textContent = incCount; badge.classList.add('visible'); }
-  else badge.classList.remove('visible');
+  if (incCount > 0) { badge.textContent = incCount; badge.classList.add('visible'); } else badge.classList.remove('visible');
 
   if (currentTab === 'chats') renderChats(ul, search);
   else if (currentTab === 'requests') renderRequests(ul, search);
@@ -231,28 +262,21 @@ function render() {
 }
 
 function renderChats(ul, search) {
-  const friendIds = friendships.filter(f => f.status === 'accepted')
-    .map(f => f.requester_id === myId ? f.addressee_id : f.requester_id);
-
-  const items = allUsers
-    .filter(u => u.id !== myId && friendIds.includes(u.id))
-    .filter(u => !search || u.username.toLowerCase().includes(search))
-    .map(u => ({ user: u, meta: chatsMeta[u.id] || { lastMessage: null, unread: 0 } }))
-    .sort((a,b) => {
+  const friendIds = friendships.filter(f => f.status === 'accepted').map(f => f.requester_id === myId ? f.addressee_id : f.requester_id);
+  const items = allUsers.filter(u => u.id !== myId && friendIds.includes(u.id)).filter(u => !search || u.username.toLowerCase().includes(search))
+    .map(u => ({ user: u, meta: chatsMeta[u.id] || { lastMessage: null, unread: 0 } })).sort((a,b) => {
       const tA = a.meta.lastMessage ? new Date(a.meta.lastMessage.created_at).getTime() : 0;
       const tB = b.meta.lastMessage ? new Date(b.meta.lastMessage.created_at).getTime() : 0;
       return tB - tA;
     });
 
-  if (!items.length) { ul.innerHTML = '<div class="empty-state">Пока нет друзей.<br>Открой вкладку «Люди» и добавь кого-нибудь.</div>'; return; }
-
+  if (!items.length) { ul.innerHTML = '<div class="empty-state">Пока нет диалогов.</div>'; return; }
   items.forEach(({ user, meta }) => {
-    const li = document.createElement('li');
-    li.className = 'chat-item';
+    const li = document.createElement('li'); li.className = 'chat-item';
     if (currentChatUser && user.id === currentChatUser.id) li.classList.add('active');
     li.onclick = () => openChat(user);
 
-    const av = makeAvatar(user.username);
+    const av = makeAvatar(user.username, null, user.avatar_url);
     if (onlineUsers.has(user.id)) av.style.boxShadow = '0 0 0 2px var(--online)';
     li.appendChild(av);
 
@@ -265,53 +289,35 @@ function renderChats(ul, search) {
 
     const bottom = document.createElement('div'); bottom.className = 'chat-bottom';
     const preview = document.createElement('div'); preview.className = 'chat-preview';
-    if (typingUsers.has(user.id) && currentChatUser && currentChatUser.id === user.id) {
-      preview.textContent = 'печатает...'; preview.classList.add('typing');
-    } else if (meta.lastMessage) {
-      preview.textContent = (meta.lastMessage.sender_id === myId ? 'Вы: ' : '') + meta.lastMessage.content;
-    } else preview.textContent = 'Нет сообщений';
+    if (typingUsers.has(user.id) && currentChatUser && currentChatUser.id === user.id) { preview.textContent = 'печатает...'; preview.classList.add('typing'); }
+    else if (meta.lastMessage) { preview.textContent = (meta.lastMessage.sender_id === myId ? 'Вы: ' : '') + meta.lastMessage.content; }
+    else preview.textContent = 'Нет сообщений';
     bottom.appendChild(preview);
 
     if (meta.unread > 0 && !(currentChatUser && currentChatUser.id === user.id)) {
-      const b = document.createElement('div'); b.className = 'unread-badge'; b.textContent = meta.unread > 99 ? '99+' : meta.unread;
-      bottom.appendChild(b);
+      const b = document.createElement('div'); b.className = 'unread-badge'; b.textContent = meta.unread > 99 ? '99+' : meta.unread; bottom.appendChild(b);
     }
     body.appendChild(top); body.appendChild(bottom); li.appendChild(body); ul.appendChild(li);
   });
 }
 
 function renderRequests(ul, search) {
-  const incoming = getIncoming();
-  const outgoing = getOutgoing();
-
-  if (!incoming.length && !outgoing.length) {
-    ul.innerHTML = '<div class="empty-state">Заявок нет</div>';
-    return;
-  }
+  const incoming = getIncoming(); const outgoing = getOutgoing();
+  if (!incoming.length && !outgoing.length) { ul.innerHTML = '<div class="empty-state">Заявок нет</div>'; return; }
 
   if (incoming.length) {
-    const title = document.createElement('div');
-    title.className = 'section-title';
-    title.style.padding = '8px 16px';
-    title.textContent = 'Входящие';
-    ul.appendChild(title);
+    const title = document.createElement('div'); title.className = 'section-title'; title.style.padding = '8px 16px'; title.textContent = 'Входящие'; ul.appendChild(title);
     incoming.forEach(f => {
       const user = allUsers.find(u => u.id === f.requester_id);
-      if (!user) return;
-      if (search && !user.username.toLowerCase().includes(search)) return;
+      if (!user) return; if (search && !user.username.toLowerCase().includes(search)) return;
       ul.appendChild(buildRequestItem(user, 'incoming', f.id));
     });
   }
   if (outgoing.length) {
-    const title = document.createElement('div');
-    title.className = 'section-title';
-    title.style.padding = '8px 16px';
-    title.textContent = 'Исходящие';
-    ul.appendChild(title);
+    const title = document.createElement('div'); title.className = 'section-title'; title.style.padding = '8px 16px'; title.textContent = 'Исходящие'; ul.appendChild(title);
     outgoing.forEach(f => {
       const user = allUsers.find(u => u.id === f.addressee_id);
-      if (!user) return;
-      if (search && !user.username.toLowerCase().includes(search)) return;
+      if (!user) return; if (search && !user.username.toLowerCase().includes(search)) return;
       ul.appendChild(buildRequestItem(user, 'outgoing', f.id));
     });
   }
@@ -319,42 +325,32 @@ function renderRequests(ul, search) {
 
 function buildRequestItem(user, type, fid) {
   const li = document.createElement('li'); li.className = 'chat-item';
-  const av = makeAvatar(user.username);
-  li.appendChild(av);
+  const av = makeAvatar(user.username, null, user.avatar_url); li.appendChild(av);
   const body = document.createElement('div'); body.className = 'chat-body';
   const top = document.createElement('div'); top.className = 'chat-top';
   const nameEl = document.createElement('div'); nameEl.className = 'chat-name'; nameEl.textContent = user.username;
   top.appendChild(nameEl); body.appendChild(top);
-
   const bottom = document.createElement('div'); bottom.className = 'chat-bottom';
-  const spacer = document.createElement('div'); spacer.style.flex = '1';
-  bottom.appendChild(spacer);
+  const spacer = document.createElement('div'); spacer.style.flex = '1'; bottom.appendChild(spacer);
 
   if (type === 'incoming') {
-    const accept = document.createElement('button'); accept.className = 'action-btn accept'; accept.textContent = 'Принять';
-    accept.onclick = e => { e.stopPropagation(); acceptFriend(fid); };
-    const reject = document.createElement('button'); reject.className = 'action-btn reject'; reject.textContent = 'Отклонить';
-    reject.onclick = e => { e.stopPropagation(); rejectFriend(fid); };
+    const accept = document.createElement('button'); accept.className = 'action-btn accept'; accept.textContent = 'Принять'; accept.onclick = e => { e.stopPropagation(); acceptFriend(fid); };
+    const reject = document.createElement('button'); reject.className = 'action-btn reject'; reject.textContent = 'Отклонить'; reject.onclick = e => { e.stopPropagation(); rejectFriend(fid); };
     bottom.appendChild(accept); bottom.appendChild(reject);
   } else {
-    const cancel = document.createElement('button'); cancel.className = 'action-btn cancel'; cancel.textContent = 'Отменить';
-    cancel.onclick = e => { e.stopPropagation(); rejectFriend(fid); };
+    const cancel = document.createElement('button'); cancel.className = 'action-btn cancel'; cancel.textContent = 'Отменить'; cancel.onclick = e => { e.stopPropagation(); rejectFriend(fid); };
     bottom.appendChild(cancel);
   }
-  body.appendChild(bottom); li.appendChild(body);
-  return li;
+  body.appendChild(bottom); li.appendChild(body); return li;
 }
 
 function renderPeople(ul, search) {
-  const items = allUsers
-    .filter(u => u.id !== myId)
-    .filter(u => !search || u.username.toLowerCase().includes(search));
-
+  const items = allUsers.filter(u => u.id !== myId).filter(u => !search || u.username.toLowerCase().includes(search));
   if (!items.length) { ul.innerHTML = '<div class="empty-state">Никого не найдено</div>'; return; }
 
   items.forEach(u => {
     const li = document.createElement('li'); li.className = 'chat-item';
-    const av = makeAvatar(u.username);
+    const av = makeAvatar(u.username, null, u.avatar_url);
     if (onlineUsers.has(u.id)) av.style.boxShadow = '0 0 0 2px var(--online)';
     li.appendChild(av);
 
@@ -366,51 +362,28 @@ function renderPeople(ul, search) {
     const bottom = document.createElement('div'); bottom.className = 'chat-bottom';
     const status = document.createElement('div'); status.className = 'item-status';
     status.textContent = onlineUsers.has(u.id) ? 'в сети' : lastSeenText(u.last_seen);
-    bottom.appendChild(status);
-    const spacer = document.createElement('div'); spacer.style.flex = '1';
-    bottom.appendChild(spacer);
+    bottom.appendChild(status); const spacer = document.createElement('div'); spacer.style.flex = '1'; bottom.appendChild(spacer);
 
     const fs = getFriendship(u.id);
-    if (!fs) {
-      const btn = document.createElement('button'); btn.className = 'action-btn add'; btn.textContent = 'Добавить';
-      btn.onclick = e => { e.stopPropagation(); sendFriendRequest(u.id); };
-      bottom.appendChild(btn);
-    } else if (fs.status === 'accepted') {
-      const btn = document.createElement('button'); btn.className = 'action-btn pending'; btn.textContent = 'В друзьях';
-      btn.onclick = e => { e.stopPropagation(); openChat(u); };
-      bottom.appendChild(btn);
-    } else if (fs.status === 'pending') {
-      const btn = document.createElement('button'); btn.className = 'action-btn pending'; btn.textContent = 'Заявка отправлена';
-      bottom.appendChild(btn);
-    } else {
-      const btn = document.createElement('button'); btn.className = 'action-btn add'; btn.textContent = 'Добавить';
-      btn.onclick = e => { e.stopPropagation(); sendFriendRequest(u.id); };
-      bottom.appendChild(btn);
-    }
+    if (!fs) { const btn = document.createElement('button'); btn.className = 'action-btn add'; btn.textContent = 'Добавить'; btn.onclick = e => { e.stopPropagation(); sendFriendRequest(u.id); }; bottom.appendChild(btn); }
+    else if (fs.status === 'accepted') { const btn = document.createElement('button'); btn.className = 'action-btn pending'; btn.textContent = 'В друзьях'; btn.onclick = e => { e.stopPropagation(); openChat(u); }; bottom.appendChild(btn); }
+    else if (fs.status === 'pending') { const btn = document.createElement('button'); btn.className = 'action-btn pending'; btn.textContent = 'Заявка отправлена'; bottom.appendChild(btn); }
+    else { const btn = document.createElement('button'); btn.className = 'action-btn add'; btn.textContent = 'Добавить'; btn.onclick = e => { e.stopPropagation(); sendFriendRequest(u.id); }; bottom.appendChild(btn); }
     body.appendChild(bottom); li.appendChild(body); ul.appendChild(li);
   });
 }
 
-// === CHAT ===
 async function openChat(user) {
   if (!areFriends(user.id)) { alert('Сначала добавьте пользователя в друзья'); return; }
   currentChatUser = user;
   document.getElementById('chat-header-name').textContent = user.username;
-  const headerAv = document.getElementById('chat-avatar');
-  headerAv.style.display = 'flex';
-  const newAv = makeAvatar(user.username, 40); newAv.id = 'chat-avatar';
-  headerAv.replaceWith(newAv);
-  document.getElementById('messages').innerHTML = '';
-  lastDate = null;
-  document.getElementById('sidebar').classList.add('hidden');
-  document.getElementById('chat').classList.remove('hidden');
+  const headerAv = document.getElementById('chat-avatar'); headerAv.style.display = 'flex';
+  const newAv = makeAvatar(user.username, 40, user.avatar_url); newAv.id = 'chat-avatar'; headerAv.replaceWith(newAv);
+  document.getElementById('messages').innerHTML = ''; lastDate = null;
+  document.getElementById('sidebar').classList.add('hidden'); document.getElementById('chat').classList.remove('hidden');
 
   if (messageChannel) await sb.removeChannel(messageChannel);
-  await loadHistory(user);
-  await markAsRead(user);
-  subscribeMessages(user);
-  updateHeaderStatus();
-  render();
+  await loadHistory(user); await markAsRead(user); subscribeMessages(user); updateHeaderStatus(); render();
 }
 
 function updateHeaderStatus() {
@@ -422,73 +395,45 @@ function updateHeaderStatus() {
 }
 
 async function loadHistory(user) {
-  const { data } = await sb.from('messages').select('*')
-    .or('and(sender_id.eq.' + myId + ',receiver_id.eq.' + user.id + '),and(sender_id.eq.' + user.id + ',receiver_id.eq.' + myId + ')')
-    .order('created_at', { ascending: true });
+  const { data } = await sb.from('messages').select('*').or('and(sender_id.eq.' + myId + ',receiver_id.eq.' + user.id + '),and(sender_id.eq.' + user.id + ',receiver_id.eq.' + myId + ')').order('created_at', { ascending: true });
   if (data) { data.forEach(renderMessage); document.getElementById('messages').scrollTop = 999999; }
 }
 
 async function markAsRead(user) {
-  await sb.from('messages').update({ read_at: new Date().toISOString() })
-    .eq('sender_id', user.id).eq('receiver_id', myId).is('read_at', null);
+  await sb.from('messages').update({ read_at: new Date().toISOString() }).eq('sender_id', user.id).eq('receiver_id', myId).is('read_at', null);
   if (chatsMeta[user.id]) chatsMeta[user.id].unread = 0;
 }
 
 function subscribeMessages(user) {
   messageChannel = sb.channel('messages-' + user.id + '-' + Date.now())
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-      const msg = payload.new;
-      const relevant = (msg.sender_id === myId && msg.receiver_id === user.id) || (msg.sender_id === user.id && msg.receiver_id === myId);
-      if (!relevant) return;
-      const other = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
-      chatsMeta[other] = chatsMeta[other] || { lastMessage: null, unread: 0 };
-      chatsMeta[other].lastMessage = msg;
+      const msg = payload.new; const relevant = (msg.sender_id === myId && msg.receiver_id === user.id) || (msg.sender_id === user.id && msg.receiver_id === myId);
+      if (!relevant) return; const other = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
+      chatsMeta[other] = chatsMeta[other] || { lastMessage: null, unread: 0 }; chatsMeta[other].lastMessage = msg;
       if (msg.receiver_id === myId && !msg.read_at && (!currentChatUser || currentChatUser.id !== user.id)) chatsMeta[other].unread++;
-      if (currentChatUser && currentChatUser.id === user.id) {
-        renderMessage(msg);
-        document.getElementById('messages').scrollTop = 999999;
-      }
-      render();
-      if (msg.receiver_id === myId && currentChatUser && currentChatUser.id === msg.sender_id) markAsRead(user);
+      if (currentChatUser && currentChatUser.id === user.id) { renderMessage(msg); document.getElementById('messages').scrollTop = 999999; }
+      render(); if (msg.receiver_id === myId && currentChatUser && currentChatUser.id === msg.sender_id) markAsRead(user);
     })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
-      if (payload.new.read_at) {
-        const el = document.querySelector('[data-msg-id="' + payload.new.id + '"] .check');
-        if (el) { el.textContent = '✓✓'; el.classList.add('read'); }
-      }
-    })
-    .subscribe();
+      if (payload.new.read_at) { const el = document.querySelector('[data-msg-id="' + payload.new.id + '"] .check'); if (el) { el.textContent = '✓✓'; el.classList.add('read'); } }
+    }).subscribe();
 }
 
 function renderMessage(msg) {
-  const box = document.getElementById('messages');
-  const dayLabel = formatDate(msg.created_at);
-  if (dayLabel !== lastDate) {
-    const div = document.createElement('div'); div.className = 'date-divider'; div.textContent = dayLabel;
-    box.appendChild(div); lastDate = dayLabel;
-  }
-  const isMine = msg.sender_id === myId;
-  const row = document.createElement('div');
-  row.className = 'msg-row ' + (isMine ? 'mine' : 'theirs');
-  row.setAttribute('data-msg-id', msg.id);
+  const box = document.getElementById('messages'); const dayLabel = formatDate(msg.created_at);
+  if (dayLabel !== lastDate) { const div = document.createElement('div'); div.className = 'date-divider'; div.textContent = dayLabel; box.appendChild(div); lastDate = dayLabel; }
+  const isMine = msg.sender_id === myId; const row = document.createElement('div');
+  row.className = 'msg-row ' + (isMine ? 'mine' : 'theirs'); row.setAttribute('data-msg-id', msg.id);
   const bubble = document.createElement('div'); bubble.className = 'msg ' + (isMine ? 'mine' : 'theirs');
   const text = document.createElement('div'); text.className = 'text'; text.textContent = msg.content;
   const meta = document.createElement('div'); meta.className = 'meta';
-  const time = document.createElement('span'); time.textContent = formatTime(msg.created_at);
-  meta.appendChild(time);
-  if (isMine) {
-    const check = document.createElement('span');
-    check.className = 'check' + (msg.read_at ? ' read' : '');
-    check.textContent = msg.read_at ? '✓✓' : '✓';
-    meta.appendChild(check);
-  }
+  const time = document.createElement('span'); time.textContent = formatTime(msg.created_at); meta.appendChild(time);
+  if (isMine) { const check = document.createElement('span'); check.className = 'check' + (msg.read_at ? ' read' : ''); check.textContent = msg.read_at ? '✓✓' : '✓'; meta.appendChild(check); }
   bubble.appendChild(text); bubble.appendChild(meta); row.appendChild(bubble); box.appendChild(row);
 }
 
 document.getElementById('form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const input = document.getElementById('input');
-  const text = input.value.trim();
+  e.preventDefault(); const input = document.getElementById('input'); const text = input.value.trim();
   if (!text || !currentChatUser) return;
   const { error } = await sb.from('messages').insert({ sender_id: myId, receiver_id: currentChatUser.id, content: text });
   if (error) { alert('Ошибка: ' + error.message); return; }
@@ -499,77 +444,34 @@ const inputEl = document.getElementById('input');
 inputEl.addEventListener('input', () => {
   if (!currentChatUser) return;
   if (!amTyping) { amTyping = true; setTyping(currentChatUser.id); }
-  clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(() => { amTyping = false; stopTyping(); }, 2000);
+  clearTimeout(typingTimeout); typingTimeout = setTimeout(() => { amTyping = false; stopTyping(); }, 2000);
 });
 
 document.getElementById('back-btn').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.remove('hidden');
-  document.getElementById('chat').classList.add('hidden');
-  currentChatUser = null;
-  render();
+  document.getElementById('sidebar').classList.remove('hidden'); document.getElementById('chat').classList.add('hidden');
+  currentChatUser = null; render();
 });
+
+const EMOJIS = ['😀','😂','😊','😍','😭','😎','😡','👍','🔥','❤️','🎉','🤔','🙄','😴','🥺','✨','💯','🙌','🥰','🥶','💀','🤡','👽','👻','👀','💅','🍻','🚀','💸','🎧'];
+function setupEmojiPicker() {
+  if (document.getElementById('emoji-btn')) return;
+  const form = document.getElementById('form'); const submitBtn = form.querySelector('button[type="submit"]');
+  const emojiBtn = document.createElement('button'); emojiBtn.type = 'button'; emojiBtn.id = 'emoji-btn'; emojiBtn.innerHTML = '😀';
+  form.insertBefore(emojiBtn, submitBtn);
+  const picker = document.createElement('div'); picker.id = 'emoji-picker'; picker.className = 'hidden';
+  EMOJIS.forEach(emo => { const span = document.createElement('span'); span.textContent = emo; span.className = 'emoji-item'; span.onclick = () => { const input = document.getElementById('input'); input.value += emo; input.focus(); }; picker.appendChild(span); });
+  document.getElementById('chat').appendChild(picker);
+  emojiBtn.onclick = (e) => { e.stopPropagation(); picker.classList.toggle('hidden'); };
+  document.addEventListener('click', (e) => { if (!picker.contains(e.target) && e.target !== emojiBtn) picker.classList.add('hidden'); });
+}
+setupEmojiPicker();
 
 (async () => {
   const { data: { session } } = await sb.auth.getSession();
   if (session && !myId) {
     myId = session.user.id;
-    const { data: profile } = await sb.from('profiles').select('username').eq('id', myId).maybeSingle();
-    if (profile) { me = profile.username; startApp(); }
-    else {
-      const uname = session.user.user_metadata?.username || session.user.email.split('@')[0];
-      await sb.from('profiles').insert({ id: myId, username: uname });
-      me = uname; startApp();
-    }
+    const { data: profile } = await sb.from('profiles').select('username, avatar_url').eq('id', myId).maybeSingle();
+    if (profile) { me = profile.username; myAvatarUrl = profile.avatar_url; startApp(); }
+    else { const uname = session.user.user_metadata?.username || session.user.email.split('@')[0]; await sb.from('profiles').insert({ id: myId, username: uname }); me = uname; startApp(); }
   }
 })();
-
-// === ФАЗА 2: ЭМОДЗИ ПАНЕЛЬ ===
-const EMOJIS = ['😀','😂','😊','😍','😭','😎','😡','👍','🔥','❤️','🎉','🤔','🙄','😴','🥺','✨','💯','🙌','🥰','🥶','💀','🤡','👽','👻','👀','💅','🍻','🚀','💸','🎧'];
-
-function setupEmojiPicker() {
-  if (document.getElementById('emoji-btn')) return;
-  const form = document.getElementById('form');
-  const submitBtn = form.querySelector('button[type="submit"]');
-  
-  const emojiBtn = document.createElement('button');
-  emojiBtn.type = 'button';
-  emojiBtn.id = 'emoji-btn';
-  emojiBtn.innerHTML = '😀';
-  
-  // Вставляем кнопку смайлов перед кнопкой отправки
-  form.insertBefore(emojiBtn, submitBtn);
-  
-  const picker = document.createElement('div');
-  picker.id = 'emoji-picker';
-  picker.className = 'hidden';
-  
-  EMOJIS.forEach(emo => {
-    const span = document.createElement('span');
-    span.textContent = emo;
-    span.className = 'emoji-item';
-    span.onclick = () => {
-      const input = document.getElementById('input');
-      input.value += emo;
-      input.focus();
-    };
-    picker.appendChild(span);
-  });
-  
-  document.getElementById('chat').appendChild(picker);
-  
-  emojiBtn.onclick = (e) => {
-    e.stopPropagation();
-    picker.classList.toggle('hidden');
-  };
-  
-  // Закрываем панель при клике в любое другое место
-  document.addEventListener('click', (e) => {
-    if (!picker.contains(e.target) && e.target !== emojiBtn) {
-      picker.classList.add('hidden');
-    }
-  });
-}
-
-// Запускаем
-setupEmojiPicker();

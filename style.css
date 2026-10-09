@@ -90,3 +90,8 @@ body { background: #0a0e14; color: #e4e6eb; height: 100vh; overflow: hidden; }
 #emoji-picker.hidden { display: none !important; }
 .emoji-item { font-size: 22px; cursor: pointer; transition: 0.2s; text-align: center; padding: 6px; border-radius: 8px; user-select: none; }
 .emoji-item:hover { background: rgba(255,255,255,0.1); transform: scale(1.2); }
+
+/* --- АВАТАРКА ХОВЕР --- */
+#my-avatar { cursor: pointer; position: relative; overflow: hidden; }
+#my-avatar::after { content: '✎'; position: absolute; inset: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; color: white; opacity: 0; transition: 0.2s; font-size: 20px; border-radius: 50%; }
+#my-avatar:hover::after { opacity: 1; }
