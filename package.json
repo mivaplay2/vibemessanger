@@ -1,0 +1,17 @@
+{
+  "name": "vibemessanger",
+  "version": "1.0.0",
+  "description": "Vibemessanger - веб-мессенджер на Node.js + Socket.IO",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4"
+  }
+}
