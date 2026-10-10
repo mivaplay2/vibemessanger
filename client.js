@@ -38,7 +38,6 @@ function lastSeenText(ts) {
   if (min < 1440) return `Был(а) ${Math.floor(min/60)} ч назад`; return 'Был(а) ' + new Date(ts).toLocaleDateString('ru-RU');
 }
 
-// === ЗВУКИ И БЕЙДЖИ ===
 function playNotification() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -62,31 +61,45 @@ function toggleAuth(mode) {
 window.toggleAuth = toggleAuth;
 function showError(id, msg) { const el = document.getElementById(id); if (el) { el.textContent = msg; setTimeout(() => el.textContent = '', 5000); } }
 
+// === АВТОРИЗАЦИЯ ПО EMAIL (ЧИСТАЯ) ===
 document.getElementById('btn-register').addEventListener('click', async () => {
-  const email = document.getElementById('reg-email').value.trim(), username = document.getElementById('reg-username').value.trim(), password = document.getElementById('reg-password').value;
+  const email = document.getElementById('reg-email').value.trim();
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
   if (!email || !username || !password) return showError('register-error', 'Заполните все поля');
   if (password.length < 6) return showError('register-error', 'Пароль минимум 6 символов');
+  
   const { data: existing } = await sb.from('profiles').select('username').eq('username', username).maybeSingle();
   if (existing) return showError('register-error', 'Такой ник уже занят');
+  
   const { data, error } = await sb.auth.signUp({ email, password, options: { data: { username } } });
   if (error) return showError('register-error', error.message);
-  if (!data.session) toggleAuth('verify');
+  if (!error) toggleAuth('verify');
 });
+
 document.getElementById('btn-login').addEventListener('click', async () => {
-  const email = document.getElementById('login-email').value.trim(), password = document.getElementById('login-password').value;
-  if (!phone || !password) return showError('login-error', 'Заполните все поля');
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) return showError('login-error', 'Заполните все поля');
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) { if (error.message.includes('Email not confirmed')) return showError('login-error', 'Сначала подтвердите почту'); return showError('login-error', error.message); }
 });
+
 const btnVerify = document.getElementById('btn-verify');
 if (btnVerify) {
   btnVerify.addEventListener('click', async () => {
-    const email = document.getElementById('reg-email').value.trim(), token = document.getElementById('verify-code').value.trim();
-    if (!token || token.length < 6) return showError('verify-error', 'Введи код из письма');
-    btnVerify.textContent = 'Проверка...'; const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' })); btnVerify.textContent = 'Подтвердить';
+    const email = (document.getElementById('reg-email').value || document.getElementById('login-email').value).trim();
+    const token = document.getElementById('verify-code').value.trim();
+    if (!token || token.length < 6) return showError('verify-error', 'Введи код');
+    
+    btnVerify.textContent = 'Проверка...';
+    const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
+    btnVerify.textContent = 'Подтвердить';
+    
     if (error) return showError('verify-error', error.message);
   });
 }
+
 document.getElementById('logout-btn').addEventListener('click', async () => {
   if (myId) await sb.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', myId);
   [messageChannel, profilesChannel, presenceChannel, friendsChannel].forEach(ch => ch && sb.removeChannel(ch));
@@ -103,7 +116,6 @@ sb.auth.onAuthStateChange(async (event, session) => {
   }
 });
 
-// === НАСТРОЙКИ ПРОФИЛЯ ===
 function setupAvatarUpload(avatarEl) {
   avatarEl.style.cursor = 'pointer'; avatarEl.title = 'Сменить аватарку';
   const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/jpeg, image/png, image/webp'; input.style.display = 'none'; document.body.appendChild(input);
@@ -143,13 +155,12 @@ async function startApp() {
   const form = document.getElementById('form');
   if(!document.getElementById('reply-banner')) { const banner = document.createElement('div'); banner.id = 'reply-banner'; form.parentNode.insertBefore(banner, form); }
   
-  // Создаем заглушку чата
   if(!document.getElementById('chat-placeholder')) {
     const p = document.createElement('div'); p.id = 'chat-placeholder';
     p.innerHTML = '<div class="logo-glow">✨</div><h2 style="color: #fff; margin-bottom: 8px;">Vibemessanger</h2><p>Выберите чат для начала общения</p>';
     document.getElementById('app').appendChild(p);
   }
-  document.getElementById('chat').classList.add('hidden'); // прячем сам чат со старта
+  document.getElementById('chat').classList.add('hidden');
 
   setupAttachment(); setupEmojiPicker(); setupCloseBtn();
   await loadAll(); subscribeAll(); render();
@@ -263,7 +274,6 @@ function renderPeople(ul, search) {
   });
 }
 
-// === ЧАТ И ЛОГИКА ===
 function setupCloseBtn() {
   if(document.getElementById('close-chat-btn-desktop')) return;
   const btn = document.createElement('button'); btn.id = 'close-chat-btn-desktop'; btn.innerHTML = '✖'; btn.title = 'Закрыть чат';
@@ -274,7 +284,7 @@ function closeChat() {
   currentChatUser = null; cancelReply(); if(window.cancelImage) cancelImage();
   document.getElementById('chat').classList.add('hidden');
   document.getElementById('chat-placeholder').classList.remove('hidden');
-  document.getElementById('sidebar').classList.remove('hidden'); // всегда показываем сайдбар при закрытии
+  document.getElementById('sidebar').classList.remove('hidden'); 
   updateTitleBadge(); render();
 }
 
@@ -287,7 +297,7 @@ async function openChat(user) {
   
   document.getElementById('chat-placeholder').classList.add('hidden');
   document.getElementById('chat').classList.remove('hidden');
-  if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden'); // Прячем сайдбар ТОЛЬКО на мобилках
+  if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden');
 
   if (messageChannel) await sb.removeChannel(messageChannel);
   await loadHistory(user); await markAsRead(user); subscribeMessages(user); updateHeaderStatus(); render();
@@ -316,7 +326,7 @@ function subscribeMessages(user) {
       if (!relevant) return; const other = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
       chatsMeta[other] = chatsMeta[other] || { lastMessage: null, unread: 0 }; chatsMeta[other].lastMessage = msg;
       
-      if (msg.sender_id !== myId) playNotification(); // Звук при получении сообщения
+      if (msg.sender_id !== myId) playNotification(); 
       
       if (msg.receiver_id === myId && !msg.read_at && (!currentChatUser || currentChatUser.id !== user.id)) chatsMeta[other].unread++;
       if (currentChatUser && currentChatUser.id === user.id) { msgCache[msg.id] = msg; renderMessage(msg); document.getElementById('messages').scrollTop = 999999; }
@@ -388,7 +398,6 @@ function renderMessage(msg) {
   row.innerHTML = html + `</div>`;
 }
 
-// === ВЛОЖЕНИЯ И ОТПРАВКА ===
 async function compressImage(file) {
   return new Promise(resolve => {
     const reader = new FileReader();
@@ -455,7 +464,6 @@ inputEl.addEventListener('input', () => {
   clearTimeout(typingTimeout); typingTimeout = setTimeout(() => { amTyping = false; stopTyping(); }, 2000);
 });
 
-// Кнопка "назад" (для телефонов)
 document.getElementById('back-btn').addEventListener('click', closeChat);
 
 (async () => {
@@ -467,10 +475,3 @@ document.getElementById('back-btn').addEventListener('click', closeChat);
     else { const uname = session.user.user_metadata?.username || session.user.email.split('@')[0]; await sb.from('profiles').insert({ id: myId, username: uname }); me = uname; startApp(); }
   }
 })();
-
-
-// Update 639272289835759035
-
-// Force Phone Update 639272565659664143
-
-// Rollback to reliable Email 639272585664590092
