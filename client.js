@@ -63,27 +63,27 @@ window.toggleAuth = toggleAuth;
 function showError(id, msg) { const el = document.getElementById(id); if (el) { el.textContent = msg; setTimeout(() => el.textContent = '', 5000); } }
 
 document.getElementById('btn-register').addEventListener('click', async () => {
-  const phone = document.getElementById('reg-phone').value.trim().replace(/[^0-9+]/g, ''), username = document.getElementById('reg-username').value.trim(), password = document.getElementById('reg-password').value;
-  if (!phone || !username || !password) return showError('register-error', 'Заполните все поля');
+  const email = document.getElementById('reg-email').value.trim(), username = document.getElementById('reg-username').value.trim(), password = document.getElementById('reg-password').value;
+  if (!email || !username || !password) return showError('register-error', 'Заполните все поля');
   if (password.length < 6) return showError('register-error', 'Пароль минимум 6 символов');
   const { data: existing } = await sb.from('profiles').select('username').eq('username', username).maybeSingle();
   if (existing) return showError('register-error', 'Такой ник уже занят');
-  const { data, error } = await sb.auth.signInWithOtp({ phone, options: { data: { username } } });
+  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { username } } });
   if (error) return showError('register-error', error.message);
   if (!data.session) toggleAuth('verify');
 });
 document.getElementById('btn-login').addEventListener('click', async () => {
-  const phone = document.getElementById('login-phone').value.trim().replace(/[^0-9+]/g, ''), password = document.getElementById('login-password').value;
+  const email = document.getElementById('login-email').value.trim(), password = document.getElementById('login-password').value;
   if (!phone || !password) return showError('login-error', 'Заполните все поля');
-  const { error } = await sb.auth.signInWithOtp({ phone });
+  const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) { if (error.message.includes('Email not confirmed')) return showError('login-error', 'Сначала подтвердите почту'); return showError('login-error', error.message); }
 });
 const btnVerify = document.getElementById('btn-verify');
 if (btnVerify) {
   btnVerify.addEventListener('click', async () => {
-    const phone = document.getElementById('reg-phone').value.trim().replace(/[^0-9+]/g, ''), token = document.getElementById('verify-code').value.trim();
+    const email = document.getElementById('reg-email').value.trim(), token = document.getElementById('verify-code').value.trim();
     if (!token || token.length < 6) return showError('verify-error', 'Введи код из письма');
-    btnVerify.textContent = 'Проверка...'; const { error } = await sb.auth.verifyOtp({ phone, token, type: 'sms' }); btnVerify.textContent = 'Подтвердить';
+    btnVerify.textContent = 'Проверка...'; const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' })); btnVerify.textContent = 'Подтвердить';
     if (error) return showError('verify-error', error.message);
   });
 }
@@ -472,3 +472,5 @@ document.getElementById('back-btn').addEventListener('click', closeChat);
 // Update 639272289835759035
 
 // Force Phone Update 639272565659664143
+
+// Rollback to reliable Email 639272585664590092
