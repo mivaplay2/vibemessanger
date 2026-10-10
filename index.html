@@ -30,9 +30,9 @@
         <div class="auth-card hidden" id="verify-form">
       <h1>Vibemessanger</h1>
       <p class="subtitle">Проверка почты</p>
-      <p class="info-msg">Мы отправили 6-значный код на твой email.</p>
+      <p class="info-msg">Мы отправили код подтверждения на твой email.</p>
       <div class="input-group">
-        <input id="verify-code" type="text" placeholder="000000" maxlength="6" style="text-align: center; font-size: 24px; letter-spacing: 12px; font-weight: bold;" required autocomplete="off">
+        <input id="verify-code" type="text" placeholder="Код" maxlength="8" style="text-align: center; font-size: 24px; letter-spacing: 12px; font-weight: bold;" required autocomplete="off">
       </div>
       <button id="btn-verify" class="btn-primary" style="margin-top: 15px;">Подтвердить</button>
       <p class="switch-link" onclick="toggleAuth('login')">Отмена</p>
@@ -84,4 +84,5 @@
   <script src="client.js"></script>
 </body>
 </html>
+
 

@@ -82,7 +82,7 @@ const btnVerify = document.getElementById('btn-verify');
 if (btnVerify) {
   btnVerify.addEventListener('click', async () => {
     const email = document.getElementById('reg-email').value.trim(), token = document.getElementById('verify-code').value.trim();
-    if (!token || token.length !== 6) return showError('verify-error', 'Введи 6 цифр из письма');
+    if (!token || token.length < 6) return showError('verify-error', 'Введи код из письма');
     btnVerify.textContent = 'Проверка...'; const { error } = await sb.auth.verifyOtp({ email, token, type: 'signup' }); btnVerify.textContent = 'Подтвердить';
     if (error) return showError('verify-error', error.message);
   });
@@ -467,3 +467,4 @@ document.getElementById('back-btn').addEventListener('click', closeChat);
     else { const uname = session.user.user_metadata?.username || session.user.email.split('@')[0]; await sb.from('profiles').insert({ id: myId, username: uname }); me = uname; startApp(); }
   }
 })();
+
