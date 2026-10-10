@@ -11,7 +11,7 @@
     <div class="auth-card" id="login-form">
       <h1>Vibemessanger</h1>
       <p class="subtitle">Вход</p>
-      <input id="login-email" type="email" placeholder="Email" required>
+      <input id="login-phone" type="tel" placeholder="+79991234567" required>
       <input id="login-password" type="password" placeholder="Пароль" required>
       <button id="btn-login">Войти</button>
       <p class="switch-link" onclick="toggleAuth('register')">Нет аккаунта? Зарегистрироваться</p>
@@ -20,7 +20,7 @@
     <div class="auth-card hidden" id="register-form">
       <h1>Vibemessanger</h1>
       <p class="subtitle">Регистрация</p>
-      <input id="reg-email" type="email" placeholder="Email" required>
+      <input id="reg-phone" type="tel" placeholder="+79991234567" required>
       <input id="reg-username" type="text" placeholder="Ник" maxlength="20" required>
       <input id="reg-password" type="password" placeholder="Пароль (мин 6)" required>
       <button id="btn-register">Зарегистрироваться</button>
@@ -84,5 +84,6 @@
   <script src="client.js"></script>
 </body>
 </html>
+
 
 
