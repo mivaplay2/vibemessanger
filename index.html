@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -23,7 +23,7 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Roboto', -apple-system, sans-serif; outline: none; }
     body { background: var(--bg-color); color: var(--text); height: 100vh; overflow: hidden; display: flex; font-size: 15px; }
-    
+
     /* СКРОЛЛБАР КАК В ТГ */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -45,7 +45,7 @@
 
     /* ГЛАВНЫЙ ЭКРАН */
     #app { display: flex; width: 100%; height: 100%; position: relative; }
-    
+
     /* БОКОВАЯ ПАНЕЛЬ */
     #sidebar { width: 380px; background: var(--sidebar-bg); border-right: 1px solid var(--divider); display: flex; flex-direction: column; z-index: 10; height: 100%; flex-shrink: 0; }
     .sidebar-header { padding: 15px; display: flex; align-items: center; gap: 15px; }
@@ -55,18 +55,18 @@
     .logout-icon { cursor: pointer; color: var(--text-muted); padding: 8px; border-radius: 50%; transition: 0.2s; display: flex; align-items: center; justify-content: center; }
     .logout-icon:hover { background: rgba(255, 255, 255, 0.08); color: #e53935; }
     .logout-icon svg { width: 22px; height: 22px; fill: currentColor; }
-    
+
     .search-container { padding: 0 15px 15px 15px; }
     .search-container input { width: 100%; background: var(--input-bg); border: 2px solid transparent; border-radius: 22px; padding: 10px 20px; color: var(--text); font-size: 15px; transition: 0.2s; }
     .search-container input:focus { border-color: var(--accent); background: var(--bg-color); }
     .search-container input::placeholder { color: var(--text-muted); }
-    
+
     .tabs { display: flex; padding: 0; border-bottom: 1px solid var(--divider); }
     .tab { flex: 1; text-align: center; padding: 14px 0; color: var(--text-muted); cursor: pointer; font-size: 14px; font-weight: 500; position: relative; transition: color 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
     .tab:hover { color: #fff; background: rgba(255,255,255,0.02); }
     .tab.active { color: var(--accent); }
     .tab.active::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: var(--accent); border-radius: 3px 3px 0 0; }
-    
+
     #list { flex: 1; overflow-y: auto; list-style: none; padding: 5px 0; }
     .chat-item { display: flex; align-items: center; padding: 10px 15px; cursor: pointer; transition: background 0.1s; }
     .chat-item:hover { background: var(--hover-bg); }
@@ -88,10 +88,10 @@
 
     /* ОБЛАСТЬ ЧАТА */
     .chat-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-color); position: relative; height: 100%; min-width: 0; }
-    
+
     #chat-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg-color); z-index: 5; text-align: center; width: 100%; }
     .tg-badge { background: rgba(0,0,0,0.3); padding: 6px 14px; border-radius: 16px; color: #fff; font-size: 14px; font-weight: 500; display: inline-block; white-space: normal; text-align: center; max-width: 80%; }
-    
+
     #chat-header { height: 64px; background: var(--sidebar-bg); display: flex; align-items: center; padding: 0 20px; gap: 15px; border-bottom: 1px solid var(--divider); flex-shrink: 0; }
     #close-chat-btn-desktop { background: none; border: none; color: var(--text-muted); padding: 8px; border-radius: 50%; cursor: pointer; margin-right: 5px; display: none; order: -1; transition: 0.2s; }
     #close-chat-btn-desktop:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
@@ -101,16 +101,16 @@
     #chat-header-name { font-weight: 500; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #chat-header-status { font-size: 14px; color: var(--text-muted); margin-top: 2px; }
     #chat-header-status.online { color: var(--accent); }
-    
+
     #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; background: var(--bg-color); }
     .date-divider { text-align: center; margin: 15px 0; }
     .date-divider span { background: rgba(24, 37, 51, 0.7); color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 500; padding: 4px 12px; border-radius: 12px; }
-    
+
     .msg-row { display: flex; width: 100%; margin-bottom: 10px; position: relative; flex-direction: column; }
     .msg { max-width: 75%; padding: 8px 14px; border-radius: 12px; position: relative; font-size: 15px; line-height: 1.5; word-break: break-word; }
     .msg.mine { align-self: flex-end; background: var(--primary); border-bottom-right-radius: 4px; }
     .msg.theirs { align-self: flex-start; background: var(--secondary); border-bottom-left-radius: 4px; }
-    
+
     .meta { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 12px; color: rgba(255,255,255,0.5); float: right; margin-left: 12px; margin-top: 6px; height: 16px; }
     .msg.mine .meta { color: rgba(122, 161, 203, 0.8); }
     .check { font-weight: bold; }
@@ -118,7 +118,7 @@
 
     .msg-quote { border-left: 3px solid var(--accent); padding-left: 10px; margin-bottom: 8px; font-size: 14px; cursor: pointer; background: rgba(0,0,0,0.1); border-radius: 4px; padding: 6px 10px; }
     .text { white-space: pre-wrap; }
-    
+
     .msg-actions { display: none; position: absolute; right: calc(100% + 10px); bottom: 0; background: var(--sidebar-bg); border-radius: 8px; padding: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); z-index: 10; gap: 2px; }
     .msg.theirs + .msg-actions { right: auto; left: calc(100% + 10px); }
     .msg-row:hover .msg-actions { display: flex; }
@@ -134,16 +134,16 @@
     #reply-banner, #image-preview { background: var(--sidebar-bg); padding: 12px 20px; display: none; align-items: center; justify-content: space-between; font-size: 14px; color: var(--text); border-left: 3px solid var(--accent); margin: 0; box-shadow: 0 -1px 3px rgba(0,0,0,0.1); border-radius: 0; }
     #reply-banner button, #image-preview button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; padding: 5px; }
     #reply-banner button:hover, #image-preview button:hover { color: #fff; }
-    
+
     #form { display: flex; align-items: flex-end; padding: 15px 20px; background: var(--sidebar-bg); gap: 12px; flex-shrink: 0; }
-    
+
     #attach-btn, #emoji-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 10px; transition: color 0.2s; border-radius: 50%; height: 48px; width: 48px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     #attach-btn:hover, #emoji-btn:hover { color: var(--accent); }
     #attach-btn svg, #emoji-btn svg { width: 26px; height: 26px; fill: currentColor; }
-    
+
     #input { flex: 1; background: var(--input-bg); border: none; color: var(--text); padding: 14px 20px; border-radius: 24px; outline: none; font-size: 16px; min-height: 48px; }
     #input::placeholder { color: var(--text-muted); }
-    
+
     #form button[type="submit"] { background: var(--accent); color: #fff; border: none; border-radius: 50%; width: 48px; height: 48px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; flex-shrink: 0; }
     #form button[type="submit"]:hover { background: #4b7bb5; }
     #form button[type="submit"] svg { width: 22px; height: 22px; fill: currentColor; transform: translateX(2px); } /* Смещение для иконки отправки */
@@ -164,6 +164,36 @@
       #input { padding: 12px 16px; border-radius: 20px; }
       #attach-btn, #emoji-btn { width: 40px; height: 40px; }
       #form button[type="submit"] { width: 42px; height: 42px; }
+    }
+    /* Vibemessanger: голосовые сообщения */
+    #input { min-width: 0; }
+    #voice-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 10px; border-radius: 50%; height: 48px; width: 48px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    #voice-btn svg { width: 25px; height: 25px; fill: currentColor; }
+    #voice-btn:hover { color: var(--accent); }
+    #voice-btn.recording { color: #ff6b6b; }
+    #form button:disabled { cursor: default; opacity: .55; }
+    #voice-panel { background: var(--sidebar-bg); padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-top: 1px solid var(--divider); flex-shrink: 0; }
+    .voice-info { flex: 1; min-width: 140px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 14px; }
+    #voice-timer { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+    #voice-stop, #voice-cancel, .voice-load { background: var(--input-bg); border: none; color: var(--text); border-radius: 8px; padding: 9px 12px; cursor: pointer; font-size: 14px; }
+    #voice-stop { color: #ff8a8a; }
+    #voice-cancel { color: var(--text-muted); }
+    #voice-preview { width: 100%; height: 42px; color-scheme: dark; }
+    .voice-player { width: 260px; max-width: 100%; }
+    .voice-player audio { width: 100%; height: 42px; color-scheme: dark; margin-top: 8px; }
+    .voice-message-label { font-size: 14px; }
+    .voice-load { margin-top: 8px; }
+    .message-image { max-width: 100%; border-radius: 8px; cursor: pointer; display: block; margin-bottom: 6px; }
+    .msg::after { content: ''; display: table; clear: both; }
+    .msg-actions { position: static; align-self: flex-start; margin-top: 4px; }
+    .msg-row.mine .msg-actions { align-self: flex-end; }
+    .reactions:empty { display: none; }
+    @media (hover: none) { .msg-actions { display: flex; } }
+    @media (max-width: 768px) {
+      #voice-btn { width: 40px; height: 40px; padding: 8px; }
+      #voice-panel { padding: 10px; }
+      #voice-cancel { padding: 9px; }
+      #form { gap: 5px; }
     }
   </style>
 </head>
@@ -214,7 +244,7 @@
       </div>
       <ul id="list"></ul>
     </div>
-    
+
     <div id="chat" class="chat-area hidden">
       <div id="chat-header">
         <button id="close-chat-btn-desktop" title="Назад">
@@ -227,8 +257,14 @@
         </div>
       </div>
       <div id="messages"></div>
-      
+
       <div id="reply-banner"></div>
+      <div id="voice-panel" class="hidden">
+        <div class="voice-info"><span id="voice-status" role="status"></span><span id="voice-timer">0:00</span></div>
+        <button type="button" id="voice-stop">■ Остановить</button>
+        <button type="button" id="voice-cancel">Отмена</button>
+        <audio id="voice-preview" class="hidden" controls preload="metadata" aria-label="Предпрослушивание голосового"></audio>
+      </div>
       <form id="form">
         <button type="button" id="attach-btn" title="Прикрепить файл">
           <svg viewBox="0 0 24 24"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 015 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 005 0V5c0-1.38-1.12-2.5-2.5-2.5S8 3.62 8 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-2.5z"/></svg>
@@ -237,18 +273,21 @@
         <button type="button" id="emoji-btn" title="Смайлики">
           <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.5 8a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm-7 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3.5 8c-2.33 0-4.31-1.46-5.11-3.5h10.22c-.8 2.04-2.78 3.5-5.11 3.5z"/></svg>
         </button>
+        <button type="button" id="voice-btn" title="Записать голосовое" aria-label="Записать голосовое">
+          <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 003-3V5a3 3 0 00-6 0v6a3 3 0 003 3zm5-3a5 5 0 01-10 0H5a7 7 0 006 6.92V21h2v-3.08A7 7 0 0019 11h-2z"/></svg>
+        </button>
         <button type="submit" title="Отправить">
           <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
       </form>
     </div>
-    
+
     <div id="chat-placeholder" class="chat-area">
       <div style="text-align: center;">
         <div class="tg-badge">Выберите чат для начала общения</div>
       </div>
     </div>
   </div>
-  <script src="client.js"></script>
+  <script src="client.js?v=voice-20261012"></script>
 </body>
 </html>

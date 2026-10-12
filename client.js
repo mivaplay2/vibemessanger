@@ -1,4 +1,4 @@
-﻿const SUPABASE_URL = 'https://bknepaougcpebsnddmyo.supabase.co';
+const SUPABASE_URL = 'https://bknepaougcpebsnddmyo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_TS5On4xp5bizVk_kJzHNCQ_iW2Mc3Op';
 const { createClient } = supabase; const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -8,6 +8,204 @@ let msgCache = {}, replyingTo = null, pendingImage = null;
 let onlineUsers = new Set(), typingUsers = new Set();
 let messageChannel = null, profilesChannel = null, presenceChannel = null, friendsChannel = null;
 let lastDate = null, typingTimeout = null, amTyping = false, currentTab = 'chats';
+
+const VOICE_BUCKET = 'chat-audio';
+const MAX_VOICE_SECONDS = 180;
+const MAX_VOICE_BYTES = 5 * 1024 * 1024;
+const VOICE_LABEL = '[Голосовое сообщение]';
+let voiceDraft = null;
+let sendingMessage = false;
+const voiceUrlCache = new Map();
+
+function formatVoiceDuration(seconds) {
+  const value = Math.max(0, Math.floor(Number(seconds) || 0));
+  return Math.floor(value / 60) + ':' + String(value % 60).padStart(2, '0');
+}
+function messagePreview(msg) {
+  if (!msg) return '';
+  if (msg.audio_path) return '🎤 Голосовое · ' + formatVoiceDuration(msg.audio_duration);
+  return msg.content || (msg.image_url ? '[Фото]' : '');
+}
+function voiceMime(type) {
+  const mime = (type || '').split(';')[0].trim().toLowerCase();
+  return { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a' }[mime] ? mime : null;
+}
+function syncComposer() {
+  const active = voiceDraft !== null;
+  const recording = active && voiceDraft.phase !== 'ready';
+  const panel = document.getElementById('voice-panel');
+  panel.classList.toggle('hidden', !active);
+  ['input', 'attach-btn', 'emoji-btn'].forEach(id => {
+    document.getElementById(id).disabled = sendingMessage || active;
+  });
+  const mic = document.getElementById('voice-btn');
+  mic.disabled = sendingMessage || active;
+  mic.classList.toggle('recording', recording);
+  document.getElementById('form').querySelector('button[type="submit"]').disabled = sendingMessage || recording;
+  document.getElementById('voice-stop').classList.toggle('hidden', !active || voiceDraft.phase !== 'recording');
+  document.getElementById('voice-cancel').disabled = sendingMessage;
+  const audio = document.getElementById('voice-preview');
+  audio.classList.toggle('hidden', !active || voiceDraft.phase !== 'ready');
+  if (!active) return;
+  document.getElementById('voice-status').textContent = sendingMessage ? 'Отправка голосового…' :
+    voiceDraft.phase === 'starting' ? 'Разрешите доступ к микрофону…' :
+    voiceDraft.phase === 'recording' ? 'Идёт запись' :
+    voiceDraft.phase === 'stopping' ? 'Подготовка записи…' : 'Прослушайте и отправьте';
+  document.getElementById('voice-timer').textContent = formatVoiceDuration(voiceDraft.seconds);
+}
+function releaseVoiceStream(draft) {
+  clearInterval(draft.interval);
+  clearTimeout(draft.limitTimer);
+  if (draft.stream) draft.stream.getTracks().forEach(track => track.stop());
+}
+async function removeVoiceFile(path) {
+  try {
+    const { error } = await sb.storage.from(VOICE_BUCKET).remove([path]);
+    if (error) console.warn('Не удалось удалить файл голосового:', error.message);
+    return !error;
+  } catch (error) {
+    console.warn('Не удалось удалить файл голосового:', error.message);
+    return false;
+  }
+}
+function resetVoiceDraft(removeUpload = true) {
+  const draft = voiceDraft;
+  voiceDraft = null;
+  if (draft) {
+    releaseVoiceStream(draft);
+    if (draft.recorder && draft.recorder.state !== 'inactive') {
+      try { draft.recorder.stop(); } catch (error) { console.warn(error.message); }
+    }
+    if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    if (removeUpload && draft.uploadedPath) void removeVoiceFile(draft.uploadedPath);
+  }
+  const audio = document.getElementById('voice-preview');
+  audio.pause();
+  audio.removeAttribute('src');
+  audio.load();
+  syncComposer();
+}
+function stopVoiceRecording() {
+  const draft = voiceDraft;
+  if (!draft || draft.phase !== 'recording') return;
+  draft.phase = 'stopping';
+  draft.seconds = Math.min(MAX_VOICE_SECONDS, (performance.now() - draft.startedAt) / 1000);
+  clearInterval(draft.interval);
+  clearTimeout(draft.limitTimer);
+  try { draft.recorder.stop(); }
+  catch (error) { resetVoiceDraft(); alert('Не удалось остановить запись: ' + error.message); return; }
+  syncComposer();
+}
+async function startVoiceRecording() {
+  if (!currentChatUser || sendingMessage || voiceDraft) return;
+  if (!areFriends(currentChatUser.id)) return alert('Сначала добавьте пользователя в друзья');
+  if (pendingImage || document.getElementById('input').value.trim()) {
+    return alert('Отправьте текст или фото перед записью голосового');
+  }
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    return alert('Запись недоступна. Откройте сайт по HTTPS в браузере с поддержкой микрофона');
+  }
+  const draft = { phase: 'starting', receiverId: currentChatUser.id, senderId: myId, seconds: 0, chunks: [], bytes: 0 };
+  voiceDraft = draft;
+  clearTimeout(typingTimeout); stopTyping(); amTyping = false;
+  document.getElementById('emoji-picker')?.classList.add('hidden');
+  syncComposer();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (voiceDraft !== draft) { stream.getTracks().forEach(track => track.stop()); return; }
+    draft.stream = stream;
+    const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm']
+      .find(type => MediaRecorder.isTypeSupported(type));
+    draft.recorder = new MediaRecorder(stream, { audioBitsPerSecond: 64000, ...(mimeType ? { mimeType } : {}) });
+    if (!voiceMime(draft.recorder.mimeType)) throw new Error('Формат записи этого браузера не поддерживается');
+    draft.recorder.ondataavailable = event => {
+      if (voiceDraft !== draft || !event.data.size) return;
+      draft.chunks.push(event.data); draft.bytes += event.data.size;
+      if (draft.bytes > MAX_VOICE_BYTES && draft.phase === 'recording') stopVoiceRecording();
+    };
+    draft.recorder.onerror = () => {
+      if (voiceDraft !== draft) return;
+      resetVoiceDraft(); alert('Запись прервалась. Проверьте микрофон и попробуйте снова');
+    };
+    draft.recorder.onstop = () => {
+      releaseVoiceStream(draft);
+      if (voiceDraft !== draft) return;
+      if (draft.phase === 'recording') draft.seconds = Math.min(MAX_VOICE_SECONDS, (performance.now() - draft.startedAt) / 1000);
+      const blob = new Blob(draft.chunks, { type: draft.recorder.mimeType });
+      if (!blob.size || draft.seconds < 0.35 || blob.size > MAX_VOICE_BYTES) {
+        resetVoiceDraft();
+        alert(blob.size > MAX_VOICE_BYTES ? 'Запись слишком большая. Попробуйте записать короче' : 'Запись слишком короткая. Попробуйте снова');
+        return;
+      }
+      draft.blob = blob; draft.chunks = []; draft.phase = 'ready';
+      draft.seconds = Math.round(draft.seconds * 10) / 10;
+      draft.previewUrl = URL.createObjectURL(blob);
+      document.getElementById('voice-preview').src = draft.previewUrl;
+      syncComposer();
+    };
+    stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => {
+      if (voiceDraft === draft) stopVoiceRecording();
+    }));
+    draft.recorder.start(1000);
+    draft.startedAt = performance.now(); draft.phase = 'recording';
+    draft.interval = setInterval(() => {
+      if (voiceDraft !== draft) return;
+      draft.seconds = Math.min(MAX_VOICE_SECONDS, (performance.now() - draft.startedAt) / 1000);
+      document.getElementById('voice-timer').textContent = formatVoiceDuration(draft.seconds);
+    }, 250);
+    draft.limitTimer = setTimeout(stopVoiceRecording, MAX_VOICE_SECONDS * 1000);
+    syncComposer();
+  } catch (error) {
+    if (voiceDraft !== draft) return;
+    resetVoiceDraft();
+    const reason = error.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону в настройках сайта' :
+      error.name === 'NotFoundError' ? 'Микрофон не найден' :
+      error.name === 'NotReadableError' ? 'Микрофон занят другим приложением' : error.message;
+    alert(reason);
+  }
+}
+function setupVoiceMessages() {
+  document.getElementById('voice-btn').onclick = startVoiceRecording;
+  document.getElementById('voice-stop').onclick = stopVoiceRecording;
+  document.getElementById('voice-cancel').onclick = () => { if (!sendingMessage) resetVoiceDraft(); };
+  syncComposer();
+}
+function makeVoicePlayer(msg) {
+  const wrap = document.createElement('div'); wrap.className = 'voice-player';
+  const label = document.createElement('div'); label.className = 'voice-message-label';
+  label.textContent = '🎤 Голосовое · ' + formatVoiceDuration(msg.audio_duration);
+  const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.className = 'hidden';
+  audio.setAttribute('aria-label', 'Голосовое сообщение');
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'voice-load'; button.textContent = '▶ Прослушать';
+  button.onclick = async () => {
+    if (button.disabled) return;
+    button.disabled = true; button.textContent = 'Загрузка…';
+    try {
+      let cached = voiceUrlCache.get(msg.audio_path);
+      if (!cached || cached.expiresAt < Date.now()) {
+        const { data, error } = await sb.storage.from(VOICE_BUCKET).createSignedUrl(msg.audio_path, 3600);
+        if (error) throw error;
+        if (!data?.signedUrl) throw new Error('Не удалось получить ссылку на аудио');
+        cached = { url: data.signedUrl, expiresAt: Date.now() + 3500 * 1000 };
+        voiceUrlCache.set(msg.audio_path, cached);
+      }
+      if (!wrap.isConnected) return;
+      audio.src = cached.url; audio.classList.remove('hidden'); button.classList.add('hidden');
+      try { await audio.play(); } catch (error) { /* Браузер может потребовать повторное нажатие Play. */ }
+    } catch (error) {
+      button.textContent = '↻ Повторить'; alert('Не удалось загрузить голосовое: ' + error.message);
+    } finally { button.disabled = false; }
+  };
+  audio.addEventListener('error', () => {
+    voiceUrlCache.delete(msg.audio_path);
+    button.textContent = '↻ Загрузить заново'; button.classList.remove('hidden');
+  });
+  audio.addEventListener('play', () => {
+    document.querySelectorAll('audio').forEach(other => { if (other !== audio) other.pause(); });
+  });
+  wrap.append(label, audio, button); return wrap;
+}
+window.addEventListener('pagehide', () => resetVoiceDraft());
 
 function escapeHtml(text) { return !text ? '' : text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 function colorFromString(str) { let hash = 0; for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash); return 'hsl(' + (Math.abs(hash) % 360 + 360) % 360 + ', 60%, 50%)'; }
@@ -84,6 +282,8 @@ if (btnVerify) {
   });
 }
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  if (sendingMessage) return alert('Дождитесь отправки сообщения');
+  resetVoiceDraft();
   if (myId) await sb.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', myId);
   [messageChannel, profilesChannel, presenceChannel, friendsChannel].forEach(ch => ch && sb.removeChannel(ch));
   await sb.auth.signOut(); location.reload();
@@ -134,14 +334,14 @@ async function startApp() {
   document.getElementById('auth-screen').style.display = 'none'; document.getElementById('app').style.display = 'flex';
   document.getElementById('me').textContent = me; setupProfileSettings();
   const myAv = document.getElementById('my-avatar'); const newAv = makeAvatar(me, null, myAvatarUrl); newAv.id = 'my-avatar'; myAv.replaceWith(newAv); setupAvatarUpload(newAv);
-  
+
   const form = document.getElementById('form');
   if(!document.getElementById('reply-banner')) { const banner = document.createElement('div'); banner.id = 'reply-banner'; form.parentNode.insertBefore(banner, form); }
   if(!document.getElementById('chat-placeholder')) {
     const p = document.createElement('div'); p.id = 'chat-placeholder'; p.innerHTML = '<div class="logo-glow">✨</div><h2 style="color: #fff; margin-bottom: 8px;">Vibemessanger</h2><p>Выберите чат для начала общения</p>'; document.getElementById('app').appendChild(p);
   }
   document.getElementById('chat').classList.add('hidden');
-  setupAttachment(); setupEmojiPicker(); setupCloseBtn(); await loadAll(); subscribeAll(); render();
+  setupAttachment(); setupEmojiPicker(); setupCloseBtn(); setupVoiceMessages(); await loadAll(); subscribeAll(); render();
 }
 
 async function loadAll() {
@@ -190,7 +390,7 @@ async function render() {
   const ul = document.getElementById('list'); ul.innerHTML = ''; const search = document.getElementById('search').value.trim().toLowerCase();
   const incCount = getIncoming().length; const badge = document.getElementById('req-count');
   if (incCount > 0) { badge.textContent = incCount; badge.classList.add('visible'); } else badge.classList.remove('visible');
-  
+
   if (currentTab === 'chats') renderChats(ul, search); else if (currentTab === 'requests') renderRequests(ul, search); else await renderPeople(ul, search);
 }
 
@@ -208,7 +408,7 @@ function renderChats(ul, search) {
     top.appendChild(nameEl); top.appendChild(timeEl);
     const bottom = document.createElement('div'); bottom.className = 'chat-bottom'; const preview = document.createElement('div'); preview.className = 'chat-preview';
     if (typingUsers.has(user.id) && currentChatUser?.id === user.id) { preview.textContent = 'печатает...'; preview.classList.add('typing'); }
-    else if (meta.lastMessage) { preview.textContent = (meta.lastMessage.sender_id === myId ? 'Вы: ' : '') + (meta.lastMessage.image_url && !meta.lastMessage.content ? '[Фото]' : meta.lastMessage.content); } else preview.textContent = 'Нет сообщений';
+    else if (meta.lastMessage) { preview.textContent = (meta.lastMessage.sender_id === myId ? 'Вы: ' : '') + messagePreview(meta.lastMessage); } else preview.textContent = 'Нет сообщений';
     bottom.appendChild(preview);
     if (meta.unread > 0 && !(currentChatUser?.id === user.id)) { const b = document.createElement('div'); b.className = 'unread-badge'; b.textContent = meta.unread > 99 ? '99+' : meta.unread; bottom.appendChild(b); }
     body.appendChild(top); body.appendChild(bottom); li.appendChild(body); ul.appendChild(li);
@@ -246,7 +446,7 @@ async function renderPeople(ul, search) {
     const li = document.createElement('li'); li.className = 'chat-item'; const av = makeAvatar(u.username, null, u.avatar_url); if (onlineUsers.has(u.id)) av.style.boxShadow = '0 0 0 2px var(--online)'; li.appendChild(av);
     const body = document.createElement('div'); body.className = 'chat-body'; const top = document.createElement('div'); top.className = 'chat-top'; const nameEl = document.createElement('div'); nameEl.className = 'chat-name'; nameEl.textContent = u.username; top.appendChild(nameEl); body.appendChild(top);
     const bottom = document.createElement('div'); bottom.className = 'chat-bottom'; const status = document.createElement('div'); status.className = 'item-status'; status.textContent = onlineUsers.has(u.id) ? 'в сети' : lastSeenText(u.last_seen); bottom.appendChild(status); const spacer = document.createElement('div'); spacer.style.flex = '1'; bottom.appendChild(spacer);
-    
+
     const fs = getFriendship(u.id);
     if (!fs) { const btn = document.createElement('button'); btn.className = 'action-btn add'; btn.textContent = 'Добавить'; btn.onclick = e => { e.stopPropagation(); sendFriendRequest(u.id); }; bottom.appendChild(btn); }
     else if (fs.status === 'accepted') { const btn = document.createElement('button'); btn.className = 'action-btn pending'; btn.textContent = 'В контактах'; btn.onclick = e => { e.stopPropagation(); openChat(u); }; bottom.appendChild(btn); }
@@ -256,14 +456,21 @@ async function renderPeople(ul, search) {
 }
 
 function setupCloseBtn() {
-  if(document.getElementById('close-chat-btn-desktop')) return;
+  const existing = document.getElementById('close-chat-btn-desktop');
+  if (existing) { existing.onclick = closeChat; return; }
   const btn = document.createElement('button'); btn.id = 'close-chat-btn-desktop'; btn.innerHTML = '✖'; btn.title = 'Закрыть чат'; btn.onclick = closeChat; document.getElementById('chat-header').appendChild(btn);
 }
 function closeChat() {
+  if (sendingMessage) return alert('Дождитесь отправки сообщения');
+  resetVoiceDraft(); clearTimeout(typingTimeout); stopTyping(); amTyping = false;
+  document.querySelectorAll('#messages audio').forEach(audio => audio.pause());
   currentChatUser = null; cancelReply(); if(window.cancelImage) cancelImage(); document.getElementById('chat').classList.add('hidden'); document.getElementById('chat-placeholder').classList.remove('hidden'); document.getElementById('sidebar').classList.remove('hidden'); updateTitleBadge(); render();
 }
 async function openChat(user) {
+  if (sendingMessage) return alert('Дождитесь отправки сообщения');
   if (!areFriends(user.id)) { alert('Сначала добавьте пользователя в друзья'); return; }
+  resetVoiceDraft(); clearTimeout(typingTimeout); stopTyping(); amTyping = false;
+  document.querySelectorAll('#messages audio').forEach(audio => audio.pause());
   currentChatUser = user; cancelReply(); if(window.cancelImage) cancelImage();
   document.getElementById('chat-header-name').textContent = user.username;
   const headerAv = document.getElementById('chat-avatar'); headerAv.style.display = 'flex'; headerAv.replaceWith(makeAvatar(user.username, 40, user.avatar_url)); document.querySelector('.chat-header-info').previousElementSibling.id = 'chat-avatar';
@@ -309,12 +516,23 @@ function subscribeMessages(user) {
 }
 
 window.actionReply = function(id) {
+  if (sendingMessage) return;
+  if (!msgCache[id]) return;
   replyingTo = msgCache[id]; document.getElementById('reply-banner').style.display = 'flex';
-  const text = replyingTo.image_url && !replyingTo.content ? '[Фотография]' : escapeHtml(replyingTo.content);
+  const text = escapeHtml(messagePreview(replyingTo));
   document.getElementById('reply-banner').innerHTML = `<div class="reply-content">↪ Ответ: ${text}</div><button type="button" onclick="cancelReply()">✕</button>`; document.getElementById('input').focus();
 };
 window.cancelReply = function() { replyingTo = null; const rb = document.getElementById('reply-banner'); if(rb) rb.style.display = 'none'; };
-window.actionDelete = async function(id) { if (confirm('Удалить сообщение?')) await sb.from('messages').delete().eq('id', id); };
+window.actionDelete = async function(id) {
+  const msg = msgCache[id]; if (!msg || msg.sender_id !== myId || !confirm('Удалить сообщение?')) return;
+  const { data, error } = await sb.from('messages').delete().eq('id', id).select('id');
+  if (error) return alert('Не удалось удалить сообщение: ' + error.message);
+  if (!data?.length) return alert('Сервер не подтвердил удаление');
+  if (msg.audio_path) { voiceUrlCache.delete(msg.audio_path); await removeVoiceFile(msg.audio_path); }
+  const row = document.querySelector(`[data-msg-id="${CSS.escape(String(id))}"]`);
+  row?.querySelector('audio')?.pause(); row?.remove(); delete msgCache[id];
+  await loadAll(); render();
+};
 
 let activeReactionMsg = null;
 window.actionReact = function(id, e) {
@@ -334,72 +552,176 @@ window.toggleReaction = async function(msgId, emo) {
 window.scrollToMsg = function(id) { const el = document.querySelector(`[data-msg-id="${id}"]`); if(el) el.scrollIntoView({behavior: 'smooth', block: 'center'}); };
 
 function renderMessage(msg) {
-  const box = document.getElementById('messages'); let row = document.querySelector(`[data-msg-id="${msg.id}"]`);
-  if (!row) { const dl = formatDate(msg.created_at); if (dl !== lastDate) { const div = document.createElement('div'); div.className = 'date-divider'; div.textContent = dl; box.appendChild(div); lastDate = dl; } row = document.createElement('div'); row.setAttribute('data-msg-id', msg.id); box.appendChild(row); }
-  const isMine = msg.sender_id === myId; row.className = `msg-row ${isMine ? 'mine' : 'theirs'}`; let html = `<div class="msg ${isMine ? 'mine' : 'theirs'}">`;
-  if (msg.reply_to && msgCache[msg.reply_to]) {
-    const r = msgCache[msg.reply_to]; html += `<div class="msg-quote" onclick="scrollToMsg(${r.id})"><b style="color: #64b5f6;">${r.sender_id === myId ? 'Вы' : escapeHtml(currentChatUser ? currentChatUser.username : '')}</b><br>${r.image_url && !r.content ? '[Фото]' : escapeHtml(r.content)}</div>`;
+  const box = document.getElementById('messages');
+  let row = box.querySelector(`[data-msg-id="${CSS.escape(String(msg.id))}"]`);
+  if (!row) {
+    const date = formatDate(msg.created_at);
+    if (date !== lastDate) {
+      const divider = document.createElement('div'); divider.className = 'date-divider';
+      divider.textContent = date; box.appendChild(divider); lastDate = date;
+    }
+    row = document.createElement('div'); row.dataset.msgId = msg.id; box.appendChild(row);
   }
-  if (msg.image_url) html += `<div style="margin-bottom: 6px;"><img src="${msg.image_url}" style="max-width: 100%; border-radius: 8px; cursor: pointer; display: block;" onclick="window.open('${msg.image_url}', '_blank')"></div>`;
-  if (msg.content) html += `<div class="text">${escapeHtml(msg.content)}</div>`;
-  if (msg.reactions && Object.keys(msg.reactions).length > 0) {
-    html += `<div class="reactions">`; for (let emo in msg.reactions) { const users = msg.reactions[emo]; if(users.length === 0) continue; html += `<span class="react-badge ${users.includes(myId) ? 'active' : ''}" onclick="toggleReaction(${msg.id}, '${emo}')">${emo} ${users.length}</span>`; } html += `</div>`;
+  const mine = msg.sender_id === myId;
+  const reply = msg.reply_to ? msgCache[msg.reply_to] : null;
+  const bodyKey = JSON.stringify([msg.sender_id, msg.content, msg.image_url, msg.audio_path, msg.audio_duration,
+    msg.reply_to, reply?.content, reply?.image_url, reply?.audio_path, reply?.audio_duration, currentChatUser?.username]);
+  // Чтение и реакции обновляются без пересоздания audio: воспроизведение продолжается.
+  if (row.dataset.bodyKey !== bodyKey) {
+    row.dataset.bodyKey = bodyKey; row.className = 'msg-row ' + (mine ? 'mine' : 'theirs'); row.replaceChildren();
+    const bubble = document.createElement('div'); bubble.className = 'msg ' + (mine ? 'mine' : 'theirs');
+    if (reply) {
+      const quote = document.createElement('div'); quote.className = 'msg-quote';
+      const author = document.createElement('b'); author.style.color = '#64b5f6';
+      author.textContent = reply.sender_id === myId ? 'Вы' : (currentChatUser?.username || '');
+      quote.append(author, document.createElement('br'), document.createTextNode(messagePreview(reply)));
+      quote.onclick = () => scrollToMsg(reply.id); bubble.appendChild(quote);
+    }
+    if (msg.image_url) {
+      const image = document.createElement('img'); image.className = 'message-image';
+      image.src = msg.image_url; image.alt = 'Фото в сообщении';
+      image.onclick = () => window.open(msg.image_url, '_blank', 'noopener,noreferrer'); bubble.appendChild(image);
+    }
+    if (msg.audio_path) bubble.appendChild(makeVoicePlayer(msg));
+    if (msg.content && !(msg.audio_path && msg.content === VOICE_LABEL)) {
+      const text = document.createElement('div'); text.className = 'text'; text.textContent = msg.content; bubble.appendChild(text);
+    }
+    const reactions = document.createElement('div'); reactions.className = 'reactions'; bubble.appendChild(reactions);
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const time = document.createElement('span'); time.textContent = formatTime(msg.created_at); meta.appendChild(time);
+    if (mine) { const check = document.createElement('span'); check.className = 'check'; meta.appendChild(check); }
+    bubble.appendChild(meta);
+    const actions = document.createElement('div'); actions.className = 'msg-actions';
+    const action = (label, title, handler) => {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+      button.title = title; button.onclick = handler; actions.appendChild(button);
+    };
+    action('↩️', 'Ответить', () => actionReply(msg.id));
+    action('😀', 'Реакция', event => actionReact(msg.id, event));
+    if (mine) action('🗑️', 'Удалить', () => actionDelete(msg.id));
+    row.append(bubble, actions);
   }
-  html += `<div class="meta"><span>${formatTime(msg.created_at)}</span>`; if (isMine) html += `<span class="check ${msg.read_at ? 'read' : ''}">${msg.read_at ? '✓✓' : '✓'}</span>`; html += `</div></div><div class="msg-actions"><button onclick="actionReply(${msg.id})" title="Ответить">↩️</button><button onclick="actionReact(${msg.id}, event)" title="Реакция">😀</button>`;
-  if (isMine) html += `<button onclick="actionDelete(${msg.id})" title="Удалить">🗑️</button>`; row.innerHTML = html + `</div>`;
+  const reactions = row.querySelector('.reactions'); reactions.replaceChildren();
+  for (const [emoji, users] of Object.entries(msg.reactions || {})) {
+    if (!Array.isArray(users) || !users.length) continue;
+    const badge = document.createElement('span'); badge.className = 'react-badge' + (users.includes(myId) ? ' active' : '');
+    badge.textContent = emoji + ' ' + users.length; badge.onclick = () => toggleReaction(msg.id, emoji); reactions.appendChild(badge);
+  }
+  const check = row.querySelector('.check');
+  if (check) { check.classList.toggle('read', Boolean(msg.read_at)); check.textContent = msg.read_at ? '✓✓' : '✓'; }
 }
 
 async function compressImage(file) {
-  return new Promise(resolve => {
-    const reader = new FileReader(); reader.onload = e => {
-      const img = new Image(); img.onload = () => {
-        const canvas = document.createElement('canvas'); const MAX = 1200; let w = img.width, h = img.height;
-        if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } } else { if (h > MAX) { w *= MAX / h; h = MAX; } }
-        canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h); canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.8);
-      }; img.src = e.target.result;
-    }; reader.readAsDataURL(file);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Не удалось прочитать изображение'));
+    reader.onload = event => {
+      const image = new Image(); image.onerror = () => reject(new Error('Не удалось открыть изображение'));
+      image.onload = () => {
+        try {
+          const ratio = Math.min(1, 1200 / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * ratio));
+          canvas.height = Math.max(1, Math.round(image.height * ratio));
+          canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Не удалось сжать изображение')), 'image/jpeg', 0.8);
+        } catch (error) { reject(error); }
+      };
+      image.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
   });
 }
+
 function setupAttachment() {
-  if (document.getElementById('attach-btn')) return;
-  const form = document.getElementById('form'); const attachBtn = document.createElement('button'); attachBtn.type = 'button'; attachBtn.id = 'attach-btn'; attachBtn.innerHTML = '📎'; form.insertBefore(attachBtn, document.getElementById('input'));
-  const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = 'image/jpeg, image/png, image/webp, image/gif'; fileInput.style.display = 'none'; document.body.appendChild(fileInput); attachBtn.onclick = () => fileInput.click();
+  if (document.getElementById('chat-image-input')) return;
+  const form = document.getElementById('form');
+  let attachBtn = document.getElementById('attach-btn');
+  if (!attachBtn) { attachBtn = document.createElement('button'); attachBtn.type = 'button'; attachBtn.id = 'attach-btn'; attachBtn.textContent = '📎'; form.insertBefore(attachBtn, document.getElementById('input')); }
+  const fileInput = document.createElement('input'); fileInput.id = 'chat-image-input'; fileInput.type = 'file'; fileInput.accept = 'image/jpeg, image/png, image/webp, image/gif'; fileInput.style.display = 'none'; document.body.appendChild(fileInput); attachBtn.onclick = () => fileInput.click();
   const previewBox = document.createElement('div'); previewBox.id = 'image-preview'; previewBox.style.display = 'none'; form.parentNode.insertBefore(previewBox, form);
-  fileInput.onchange = e => { const file = e.target.files[0]; if (!file) return; pendingImage = file; previewBox.style.display = 'flex'; previewBox.innerHTML = `<div class="reply-content">📎 Прикреплено: ${file.name}</div><button type="button" onclick="cancelImage()">✕</button>`; };
+  fileInput.onchange = e => { const file = e.target.files[0]; if (!file) return; pendingImage = file; previewBox.style.display = 'flex'; previewBox.innerHTML = `<div class="reply-content">📎 Прикреплено: ${escapeHtml(file.name)}</div><button type="button" onclick="cancelImage()">✕</button>`; };
   window.cancelImage = () => { pendingImage = null; fileInput.value = ''; previewBox.style.display = 'none'; };
 }
 function setupEmojiPicker() {
-  if (document.getElementById('emoji-btn')) return;
-  const form = document.getElementById('form'); const submitBtn = form.querySelector('button[type="submit"]'); const emojiBtn = document.createElement('button'); emojiBtn.type = 'button'; emojiBtn.id = 'emoji-btn'; emojiBtn.innerHTML = '😀'; form.insertBefore(emojiBtn, submitBtn);
+  if (document.getElementById('emoji-picker')) return;
+  const form = document.getElementById('form');
+  let emojiBtn = document.getElementById('emoji-btn');
+  if (!emojiBtn) { emojiBtn = document.createElement('button'); emojiBtn.type = 'button'; emojiBtn.id = 'emoji-btn'; emojiBtn.textContent = '😀'; form.insertBefore(emojiBtn, form.querySelector('button[type="submit"]')); }
   const picker = document.createElement('div'); picker.id = 'emoji-picker'; picker.className = 'hidden';
-  ['😀','😂','😊','😍','😭','😎','😡','👍','🔥','❤️','🎉','🤔','🙄','😴','🥺','✨','💯','🙌','🥰','🥶','💀','🤡','👽','👻','👀','💅','🍻','🚀','💸','🎧'].forEach(emo => { const span = document.createElement('span'); span.textContent = emo; span.className = 'emoji-item'; span.onclick = () => { const input = document.getElementById('input'); input.value += emo; input.focus(); }; picker.appendChild(span); });
+  ['😀','😂','😊','😍','😭','😎','😡','👍','🔥','❤️','🎉','🤔','🙄','😴','🥺','✨','💯','🙌','🥰','🥶','💀','🤡','👽','👻','👀','💅','🍻','🚀','💸','🎧'].forEach(emo => { const span = document.createElement('span'); span.textContent = emo; span.className = 'emoji-item'; span.onclick = () => { if (voiceDraft || sendingMessage) return; const input = document.getElementById('input'); input.value += emo; input.focus(); }; picker.appendChild(span); });
   document.getElementById('chat').appendChild(picker); emojiBtn.onclick = (e) => { e.stopPropagation(); picker.classList.toggle('hidden'); }; document.addEventListener('click', (e) => { if (!picker.contains(e.target) && e.target !== emojiBtn) picker.classList.add('hidden'); });
 }
 
-const form = document.getElementById('form'); const newForm = form.cloneNode(true); form.parentNode.replaceChild(newForm, form);
-newForm.addEventListener('submit', async (e) => {
-  e.preventDefault(); const input = document.getElementById('input'); const text = input.value.trim();
-  if (!text && !pendingImage) return; if (!currentChatUser) return;
-  const submitBtn = newForm.querySelector('button[type="submit"]'); const oldHtml = submitBtn.innerHTML; submitBtn.innerHTML = '⏳'; submitBtn.disabled = true;
-  let uploadedUrl = null;
-  if (pendingImage) {
-    const blob = await compressImage(pendingImage); const ext = pendingImage.name.split('.').pop() || 'jpg'; const fileName = `${myId}-${Date.now()}.${ext}`;
-    const { data, error } = await sb.storage.from('chat-images').upload(fileName, blob, { contentType: pendingImage.type });
-    if (error) { alert('Ошибка загрузки: ' + error.message); submitBtn.innerHTML = oldHtml; submitBtn.disabled = false; return; }
-    uploadedUrl = sb.storage.from('chat-images').getPublicUrl(fileName).data.publicUrl;
+async function submitMessage(event) {
+  event.preventDefault();
+  if (sendingMessage || !currentChatUser) return;
+  if (!areFriends(currentChatUser.id)) return alert('Сначала добавьте пользователя в друзья');
+  const input = document.getElementById('input'); const text = input.value.trim();
+  const voice = voiceDraft; const image = pendingImage; const recipient = currentChatUser.id;
+  if (voice && voice.phase !== 'ready') return;
+  if (!text && !image && !voice) return;
+  if (voice && (voice.receiverId !== recipient || voice.senderId !== myId)) {
+    resetVoiceDraft(); return alert('Чат изменился. Запишите голосовое заново');
   }
-  const payload = { sender_id: myId, receiver_id: currentChatUser.id, content: text };
-  if (replyingTo) payload.reply_to = replyingTo.id; if (uploadedUrl) payload.image_url = uploadedUrl;
-  const { error } = await sb.from('messages').insert(payload); if (error) alert('Ошибка: ' + error.message);
-  input.value = ''; cancelReply(); if(window.cancelImage) cancelImage(); stopTyping(); amTyping = false; submitBtn.innerHTML = oldHtml; submitBtn.disabled = false;
-});
+  const payload = { sender_id: myId, receiver_id: recipient, content: voice ? VOICE_LABEL : text };
+  if (replyingTo) payload.reply_to = replyingTo.id;
+  const button = document.getElementById('form').querySelector('button[type="submit"]');
+  const oldHtml = button.innerHTML; button.innerHTML = '⏳'; sendingMessage = true; syncComposer();
+  try {
+    if (image) {
+      const blob = await compressImage(image); const path = `${myId}-${crypto.randomUUID()}.jpg`;
+      const { error } = await sb.storage.from('chat-images').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) throw error;
+      payload.image_url = sb.storage.from('chat-images').getPublicUrl(path).data.publicUrl;
+    }
+    let savedMessage = null;
+    if (voice) {
+      if (!voice.uploadedPath) {
+        const mime = voiceMime(voice.blob.type);
+        const extension = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a' }[mime];
+        if (!extension) throw new Error('Неподдерживаемый формат аудио');
+        const path = `${myId}/${recipient}/${crypto.randomUUID()}.${extension}`;
+        const { error } = await sb.storage.from(VOICE_BUCKET).upload(path, voice.blob, { contentType: mime, upsert: false });
+        if (error) throw error;
+        voice.uploadedPath = path;
+      }
+      payload.audio_path = voice.uploadedPath; payload.audio_duration = voice.seconds;
+      // После потери ответа сервера повторная попытка использует уже сохранённое сообщение.
+      const { data, error } = await sb.from('messages').select('*').eq('audio_path', voice.uploadedPath).maybeSingle();
+      if (error) throw error;
+      savedMessage = data;
+    }
+    if (!savedMessage) {
+      const { data, error } = await sb.from('messages').insert(payload).select('*').single();
+      if (error) {
+        if (voice) {
+          const recovered = await sb.from('messages').select('*').eq('audio_path', voice.uploadedPath).maybeSingle();
+          if (!recovered.error) savedMessage = recovered.data;
+        }
+        if (!savedMessage) throw error;
+      } else savedMessage = data;
+    }
+    if (!savedMessage) throw new Error('Сервер не подтвердил отправку');
+    chatsMeta[recipient] = { lastMessage: savedMessage, unread: chatsMeta[recipient]?.unread || 0 };
+    msgCache[savedMessage.id] = savedMessage; renderMessage(savedMessage);
+    document.getElementById('messages').scrollTop = 999999;
+    input.value = ''; cancelReply(); if (window.cancelImage) cancelImage();
+    if (voice) resetVoiceDraft(false);
+    stopTyping(); amTyping = false; render();
+  } catch (error) {
+    alert('Не удалось отправить сообщение: ' + error.message + '\nПопробуйте отправить ещё раз');
+  } finally {
+    sendingMessage = false; button.innerHTML = oldHtml; syncComposer();
+  }
+}
+
+document.getElementById('form').addEventListener('submit', submitMessage);
 
 const inputEl = document.getElementById('input');
 inputEl.addEventListener('input', () => {
   if (!currentChatUser) return; if (!amTyping) { amTyping = true; setTyping(currentChatUser.id); }
   clearTimeout(typingTimeout); typingTimeout = setTimeout(() => { amTyping = false; stopTyping(); }, 2000);
 });
-document.getElementById('back-btn').addEventListener('click', closeChat);
 
 (async () => {
   const { data: { session } } = await sb.auth.getSession();
